@@ -144,6 +144,17 @@ namespace eka2l1::drivers {
         }
 
         /**
+         * \brief Whether the backend runs on a plain OpenGL ES 2.0 context.
+         *
+         * GLES 2.0 lacks single-channel texture formats, texture swizzles and
+         * a number of other GLES 3.0 features. Bitmaps are promoted to RGBA8
+         * on such a context to avoid relying on extensions.
+         */
+        virtual bool is_gles2() const {
+            return false;
+        }
+
+        /**
          * \brief Largest 2D texture dimension the backend can allocate.
          *
          * Used to keep dynamically-grown textures (e.g. the font glyph atlas)

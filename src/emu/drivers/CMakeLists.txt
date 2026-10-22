@@ -242,7 +242,7 @@ elseif(EKA2L1_MEEGO)
         src/graphics/backend/context_egl.h
     )
 
-    target_link_libraries(drivers PUBLIC EGL)
+    target_link_libraries(drivers PUBLIC EGL ${CMAKE_DL_LIBS})
 else()
     find_package(X11 REQUIRED)
     find_package(OpenGL REQUIRED)

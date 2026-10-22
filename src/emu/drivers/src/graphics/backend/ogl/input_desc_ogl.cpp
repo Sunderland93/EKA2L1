@@ -19,6 +19,8 @@
 
 #include <drivers/graphics/backend/ogl/common_ogl.h>
 #include <drivers/graphics/backend/ogl/input_desc_ogl.h>
+#include <drivers/graphics/graphics.h>
+#include <common/log.h>
 #include <common/platform.h>
 #if EKA2L1_PLATFORM(IOS)
 #include <drivers/graphics/backend/ogl/ios_gl_loader.h>
@@ -47,7 +49,7 @@ namespace eka2l1::drivers {
         // in the previous descriptor set but are absent from the replacement set.
         if (vao_) {
             GLint previous_vao = 0;
-            glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &previous_vao);
+            glGetIntegerv(drv->is_gles2() ? EKA2L1_GL_VERTEX_ARRAY_BINDING_OES : GL_VERTEX_ARRAY_BINDING, &previous_vao);
             glBindVertexArray(vao_);
 
             for (const input_descriptor_ogl &old_input : inputs_) {
@@ -116,7 +118,13 @@ namespace eka2l1::drivers {
                 std::uint64_t offset_descriptor = inputs_[i].offset;
                 glVertexAttribPointer(inputs_[i].location, comp_count, data_type, inputs_[i].is_normalized(), inputs_[i].stride, (GLvoid *)offset_descriptor);
                 
-                if (inputs_[i].is_per_instance()) {
+                if (ogl_es2_caps().is_es2 && !ogl_es2_caps().has_instancing) {
+                    static bool instancing_warned = false;
+                    if (inputs_[i].is_per_instance() && !instancing_warned) {
+                        instancing_warned = true;
+                        LOG_ERROR(DRIVER_GRAPHICS, "Per-instance vertex attributes need GL_EXT_instanced_arrays; they will be ignored");
+                    }
+                } else if (inputs_[i].is_per_instance()) {
                     glVertexAttribDivisor(inputs_[i].location, 1);
                 } else {
                     glVertexAttribDivisor(inputs_[i].location, 0);

@@ -40,8 +40,13 @@ namespace eka2l1::drivers {
         glGenFramebuffers(1, &fbo);
         bind(nullptr, framebuffer_bind_read_draw);
 
-        // Get max color attachments
-        glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &max_color_attachment);
+        // GL_MAX_COLOR_ATTACHMENTS does not exist on GLES 2.0 (MRT is
+        // unavailable), so a framebuffer can only have one color attachment.
+        if (ogl_es2_caps().is_es2) {
+            max_color_attachment = 1;
+        } else {
+            glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &max_color_attachment);
+        }
 
         for (std::size_t i = 0; i < color_buffer_list.size(); i++) {
             if (color_buffers[i]->get_drawable_type() == DRAWABLE_TYPE_RENDERBUFFER) {
@@ -102,11 +107,11 @@ namespace eka2l1::drivers {
 
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         glClearStencil(0);
-#ifdef EKA2L1_PLATFORM_ANDROID
-        glClearDepthf(0);
-#else
-        glClearDepth(0);
-#endif
+        if (ogl_es2_caps().is_es2) {
+            glClearDepthf(0);
+        } else {
+            glClearDepth(0);
+        }
         std::uint32_t clear_flag = GL_COLOR_BUFFER_BIT;
         if (depth_buffer) clear_flag |= GL_DEPTH_BUFFER_BIT;
         if (stencil_buffer) clear_flag |= GL_STENCIL_BUFFER_BIT;
@@ -121,6 +126,11 @@ namespace eka2l1::drivers {
     }
 
     static std::pair<GLenum, GLenum> fb_bind_type_to_ogl_enum(const framebuffer_bind_type type) {
+        if (ogl_es2_caps().is_es2) {
+            // GLES 2.0 only has a single framebuffer binding point.
+            return { GL_FRAMEBUFFER, GL_FRAMEBUFFER_BINDING };
+        }
+
         switch (type) {
         case framebuffer_bind_draw:
             return { GL_DRAW_FRAMEBUFFER, GL_DRAW_FRAMEBUFFER_BINDING };
@@ -144,7 +154,7 @@ namespace eka2l1::drivers {
         glBindFramebuffer(enums.first, fbo);
 
         last_bind_type = type_bind;
-        driver = driver;
+        bind_driver = driver;
     }
 
     void ogl_framebuffer::unbind(graphics_driver *driver) {
@@ -266,6 +276,12 @@ namespace eka2l1::drivers {
             return false;
         }
 
+        if (ogl_es2_caps().is_es2) {
+            // Only COLOR_ATTACHMENT0 exists on GLES 2.0 and glDrawBuffer(s)
+            // are not part of the API (glDrawBuffersEXT only with MRT).
+            return attachment_id == 0;
+        }
+
 #ifdef EKA2L1_PLATFORM_ANDROID
         GLenum draw_buffers[2] = { GL_NONE, GL_NONE };
         draw_buffers[attachment_id] = GL_COLOR_ATTACHMENT0 + attachment_id;
@@ -279,6 +295,12 @@ namespace eka2l1::drivers {
     bool ogl_framebuffer::set_read_buffer(const std::int32_t attachment_id) {
         if (!is_attachment_id_valid(attachment_id)) {
             return false;
+        }
+
+        if (ogl_es2_caps().is_es2) {
+            // Reading always comes from COLOR_ATTACHMENT0 with the single
+            // framebuffer binding point.
+            return attachment_id == 0;
         }
 
         glReadBuffer(GL_COLOR_ATTACHMENT0 + attachment_id);
@@ -299,6 +321,22 @@ namespace eka2l1::drivers {
 
         if (flags & draw_buffer_bit_stencil_buffer) {
             blit_mask_ogl |= GL_STENCIL_BUFFER_BIT;
+        }
+
+        if (ogl_es2_caps().is_es2 && !ogl_es2_caps().has_framebuffer_blit) {
+            // No glBlitFramebuffer: the destination is whatever framebuffer is
+            // currently bound, so go through the textured quad fallback.
+            if (!(flags & draw_buffer_bit_color_buffer) || color_buffers.empty() || !color_buffers[0]
+                || color_buffers[0]->get_drawable_type() != DRAWABLE_TYPE_TEXTURE) {
+                LOG_WARN(DRIVER_GRAPHICS, "Framebuffer blit fallback on GLES 2.0 requires a texture color buffer");
+                return false;
+            }
+
+            const vec2 source_size = color_buffers[0]->get_size();
+
+            return ogl_es2_texture_blit(static_cast<GLuint>(color_buffers[0]->driver_handle()),
+                source_size.x, source_size.y, source_rect.top.x, source_rect.top.y, source_rect.size.x, source_rect.size.y,
+                dest_rect.top.x, dest_rect.top.y, dest_rect.size.x, dest_rect.size.y, copy_filter == filter_option::linear);
         }
 
         GLboolean scissor_was_enabled = glIsEnabled(GL_SCISSOR_TEST);

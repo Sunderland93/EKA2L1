@@ -19,6 +19,7 @@
  */
 
 #include <drivers/graphics/backend/ogl/shader_ogl.h>
+#include <drivers/graphics/graphics.h>
 #include <common/platform.h>
 #if EKA2L1_PLATFORM(IOS)
 #include <drivers/graphics/backend/ogl/ios_gl_loader.h>
@@ -276,6 +277,14 @@ namespace eka2l1::drivers {
         program = glCreateProgram();
         glAttachShader(program, ogl_vertex_module->shader_handle());
         glAttachShader(program, ogl_fragment_module->shader_handle());
+
+        if (driver && driver->is_stricted()) {
+            // GLSL ES 1.00 has no layout(location = ...), so pin the shared
+            // attribute names to the slots the backend's VAOs are built for.
+            glBindAttribLocation(program, 0, "in_position");
+            glBindAttribLocation(program, 1, "in_texcoord");
+            glBindAttribLocation(program, 2, "in_dist");
+        }
 
         GLint success = 0;
 

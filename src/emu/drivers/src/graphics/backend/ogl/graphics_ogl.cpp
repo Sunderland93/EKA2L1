@@ -36,8 +36,16 @@
 #include <glad/glad.h>
 #endif
 
-#if EKA2L1_PLATFORM(ANDROID)
+#if EKA2L1_PLATFORM(ANDROID) || EKA2L1_PLATFORM(MEEGO)
 #include <EGL/egl.h>
+#endif
+
+#include <cstring>
+#include <cstdlib>
+#include <cmath>
+
+#if EKA2L1_PLATFORM(MEEGO)
+#include <dlfcn.h>
 #endif
 
 #define IMGUI_IMPL_OPENGL_LOADER_GLAD
@@ -52,6 +60,30 @@ namespace eka2l1::drivers {
         }
     }
 
+#if EKA2L1_PLATFORM(MEEGO)
+    // EGL 1.4's eglGetProcAddress is only required to resolve extension
+    // functions, and Harmattan's EGL (2009) is old enough that core GLES 2.0
+    // entry points may come back NULL. Look them up in libGLESv2 first.
+    static void *meego_gles_proc_address(const char *name) {
+        static void *gles_library = nullptr;
+
+        if (!gles_library) {
+            gles_library = dlopen("libGLESv2.so.2", RTLD_LAZY | RTLD_LOCAL);
+            if (!gles_library) {
+                gles_library = dlopen("libGLESv2.so", RTLD_LAZY | RTLD_LOCAL);
+            }
+        }
+
+        if (gles_library) {
+            if (void *proc = dlsym(gles_library, name)) {
+                return proc;
+            }
+        }
+
+        return reinterpret_cast<void *>(eglGetProcAddress(name));
+    }
+#endif
+
     void init_gl_graphics_library(graphics::gl_context::mode api) {
         switch (api) {
             case graphics::gl_context::mode::opengl: {
@@ -60,7 +92,12 @@ namespace eka2l1::drivers {
             }
 
             case graphics::gl_context::mode::opengl_es: {
-#if EKA2L1_PLATFORM(ANDROID)
+#if EKA2L1_PLATFORM(MEEGO)
+                if (!gladLoadGLES2Loader((GLADloadproc) meego_gles_proc_address)) {
+                    LOG_CRITICAL(DRIVER_GRAPHICS, "gladLoadGLES2Loader() failed");
+                    return;
+                }
+#elif EKA2L1_PLATFORM(ANDROID)
                 if (!gladLoadGLES2Loader((GLADloadproc) eglGetProcAddress)) {
                     LOG_CRITICAL(DRIVER_GRAPHICS, "gladLoadGLES2Loader() failed");
                     return;
@@ -77,12 +114,107 @@ namespace eka2l1::drivers {
         glad_set_post_callback(gl_post_callback_for_error);
     }
 
+    static std::vector<std::string> query_gl_extensions(const bool is_gles, const bool es2) {
+        std::vector<std::string> result;
+
+        if (is_gles && es2) {
+            const char *extension_string = reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS));
+
+            if (extension_string) {
+                std::istringstream stream(extension_string);
+                std::string extension;
+
+                while (stream >> extension) {
+                    result.push_back(std::move(extension));
+                }
+            }
+
+            return result;
+        }
+
+        GLint extension_count = 0;
+        glGetIntegerv(GL_NUM_EXTENSIONS, &extension_count);
+
+        for (GLint i = 0; i < extension_count; i++) {
+            const char *extension = reinterpret_cast<const char *>(glGetStringi(GL_EXTENSIONS, static_cast<GLuint>(i)));
+            if (extension) {
+                result.emplace_back(extension);
+            }
+        }
+
+        return result;
+    }
+
+#if EKA2L1_PLATFORM(ANDROID) || EKA2L1_PLATFORM(MEEGO)
+    static void resolve_es2_extensions(const std::vector<std::string> &extensions) {
+        auto has_extension = [&extensions](const char *name) {
+            return std::find(extensions.begin(), extensions.end(), name) != extensions.end();
+        };
+
+        auto get_proc = [](const char *name) -> void * {
+            return reinterpret_cast<void *>(eglGetProcAddress(name));
+        };
+
+        ogl_es2_capabilities &caps = ogl_es2_caps();
+        caps.has_etc1 = has_extension("GL_OES_compressed_ETC1_RGB8_texture");
+
+        if (has_extension("GL_OES_vertex_array_object")) {
+            glad_glGenVertexArrays = reinterpret_cast<PFNGLGENVERTEXARRAYSPROC>(get_proc("glGenVertexArraysOES"));
+            glad_glBindVertexArray = reinterpret_cast<PFNGLBINDVERTEXARRAYPROC>(get_proc("glBindVertexArrayOES"));
+            glad_glDeleteVertexArrays = reinterpret_cast<PFNGLDELETEVERTEXARRAYSPROC>(get_proc("glDeleteVertexArraysOES"));
+
+            caps.has_vao = glad_glGenVertexArrays && glad_glBindVertexArray && glad_glDeleteVertexArrays;
+        }
+
+        if (has_extension("GL_EXT_instanced_arrays") || has_extension("GL_ANGLE_instanced_arrays")
+            || has_extension("GL_NV_instanced_arrays")) {
+            const char *suffix = has_extension("GL_EXT_instanced_arrays") ? "EXT"
+                : (has_extension("GL_ANGLE_instanced_arrays") ? "ANGLE" : "NV");
+
+            std::string divisor_name = std::string("glVertexAttribDivisor") + suffix;
+            std::string draw_name = std::string("glDrawArraysInstanced") + suffix;
+
+            glad_glVertexAttribDivisor = reinterpret_cast<PFNGLVERTEXATTRIBDIVISORPROC>(get_proc(divisor_name.c_str()));
+            glad_glDrawArraysInstanced = reinterpret_cast<PFNGLDRAWARRAYSINSTANCEDPROC>(get_proc(draw_name.c_str()));
+
+            caps.has_instancing = glad_glVertexAttribDivisor && glad_glDrawArraysInstanced;
+        }
+
+        if (has_extension("GL_OES_draw_elements_base_vertex")) {
+            glad_glDrawElementsBaseVertex = reinterpret_cast<PFNGLDRAWELEMENTSBASEVERTEXPROC>(get_proc("glDrawElementsBaseVertexOES"));
+            caps.has_base_vertex = glad_glDrawElementsBaseVertex != nullptr;
+        } else if (has_extension("GL_EXT_draw_elements_base_vertex")) {
+            glad_glDrawElementsBaseVertex = reinterpret_cast<PFNGLDRAWELEMENTSBASEVERTEXPROC>(get_proc("glDrawElementsBaseVertexEXT"));
+            caps.has_base_vertex = glad_glDrawElementsBaseVertex != nullptr;
+        }
+
+        if (has_extension("GL_EXT_framebuffer_blit")) {
+            glad_glBlitFramebuffer = reinterpret_cast<PFNGLBLITFRAMEBUFFERPROC>(get_proc("glBlitFramebufferEXT"));
+        } else if (has_extension("GL_NV_framebuffer_blit")) {
+            glad_glBlitFramebuffer = reinterpret_cast<PFNGLBLITFRAMEBUFFERPROC>(get_proc("glBlitFramebufferNV"));
+        } else if (has_extension("GL_ANGLE_framebuffer_blit")) {
+            glad_glBlitFramebuffer = reinterpret_cast<PFNGLBLITFRAMEBUFFERPROC>(get_proc("glBlitFramebufferANGLE"));
+        }
+
+        caps.has_framebuffer_blit = glad_glBlitFramebuffer != nullptr;
+
+        if (has_extension("GL_EXT_draw_buffers")) {
+            glad_glDrawBuffers = reinterpret_cast<PFNGLDRAWBUFFERSPROC>(get_proc("glDrawBuffersEXT"));
+        } else if (has_extension("GL_NV_draw_buffers")) {
+            glad_glDrawBuffers = reinterpret_cast<PFNGLDRAWBUFFERSPROC>(get_proc("glDrawBuffersNV"));
+        }
+
+        caps.has_draw_buffers = glad_glDrawBuffers != nullptr;
+    }
+#endif
+
     ogl_graphics_driver::ogl_graphics_driver(const window_system_info &info)
         : shared_graphics_driver(graphic_api::opengl)
         , should_stop(false)
         , surface_update_needed(false)
         , new_surface(nullptr)
         , is_gles(false)
+        , gles2_(false)
         , support_line_width_(true)
         , point_size(1.0)
         , line_style(pen_style_none)
@@ -105,93 +237,99 @@ namespace eka2l1::drivers {
         context_->set_swap_interval(1);
 
         is_gles = (context_->gl_mode() == graphics::gl_context::mode::opengl_es);
-#ifdef GL_POINT_SIZE_RANGE
-        if (!is_gles) {
-            glGetFloatv(GL_POINT_SIZE_RANGE, point_size_range_);
-        } else
-#endif
-        {
-            glGetFloatv(GL_ALIASED_POINT_SIZE_RANGE, point_size_range_);
-        }
-#ifdef GL_PROGRAM_POINT_SIZE
-        if (!is_gles) {
-            glEnable(GL_PROGRAM_POINT_SIZE);
-        }
-#endif
+        gles2_ = false;
 
-        {
-            GLint max_tex = 0;
-            glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_tex);
-            if (max_tex > 0) {
-                max_texture_size_ = static_cast<std::uint32_t>(max_tex);
-            }
-        }
+        std::int32_t major_gl = 0;
+        std::int32_t minor_gl = 0;
 
-        GLint major_gl = 0;
-        GLint minor_gl = 0;
-        glGetIntegerv(GL_MAJOR_VERSION, &major_gl);
-        glGetIntegerv(GL_MINOR_VERSION, &minor_gl);
+        if (is_gles) {
+            // GL_MAJOR_VERSION / GL_MINOR_VERSION only exist in GLES 3.0 and
+            // in desktop GL, so parse the version string on ES 2.0 contexts.
+            const char *version_string = reinterpret_cast<const char *>(glGetString(GL_VERSION));
+            const char *version_number = version_string ? std::strstr(version_string, "OpenGL ES ") : nullptr;
 
-        if (!is_gles && (major_gl < 4)) {
-            std::vector<std::string> GL_REQUIRED_EXTENSIONS = {
-                "GL_ARB_draw_elements_base_vertex"
-            };
+            if (version_number) {
+                version_number += 10;
+                major_gl = std::atoi(version_number);
 
-            std::int32_t ext_count = 0;
-            glGetIntegerv(GL_NUM_EXTENSIONS, &ext_count);
-
-            for (std::int32_t i = 0; i < ext_count; i++) {
-                const GLubyte *next_extension = glGetStringi(GL_EXTENSIONS, i);
-                auto ite = std::find(GL_REQUIRED_EXTENSIONS.begin(), GL_REQUIRED_EXTENSIONS.end(),
-                    std::string(reinterpret_cast<const char *>(next_extension)));
-
-                if (ite != GL_REQUIRED_EXTENSIONS.end()) {
-                    GL_REQUIRED_EXTENSIONS.erase(ite);
+                const char *dot = std::strchr(version_number, '.');
+                if (dot) {
+                    minor_gl = std::atoi(dot + 1);
                 }
             }
 
-            if (!GL_REQUIRED_EXTENSIONS.empty()) {
-                LOG_ERROR(DRIVER_GRAPHICS, "Some OpenGL extensions are missing in order for the emulator to work.");
-                LOG_ERROR(DRIVER_GRAPHICS, "Please upgrade your machine! Here is the list of missing extensions.");
-
-                for (const auto &ext_left : GL_REQUIRED_EXTENSIONS) {
-                    LOG_ERROR(DRIVER_GRAPHICS, "- {}", ext_left);
-                }
-            }
+            gles2_ = (major_gl < 3);
         } else {
-            if ((minor_gl >= 3) || is_gles) {
-                feature_flags_ |= OGL_FEATURE_SUPPORT_ETC2;
-            }
+            glGetIntegerv(GL_MAJOR_VERSION, &major_gl);
+            glGetIntegerv(GL_MINOR_VERSION, &minor_gl);
         }
 
-        std::int32_t ext_count = 0;
-        glGetIntegerv(GL_NUM_EXTENSIONS, &ext_count);
+        ogl_es2_caps() = {};
+        ogl_es2_caps().is_es2 = gles2_;
 
-        for (std::int32_t i = 0; i < ext_count; i++) {
-            const GLubyte *next_extension = glGetStringi(GL_EXTENSIONS, i);
-            if (strcmp(reinterpret_cast<const char*>(next_extension), "GL_ARB_ES3_compatibility") == 0) {
+        if (gles2_) {
+            LOG_INFO(DRIVER_GRAPHICS, "OpenGL ES 2.0 context detected, enabling compatibility path");
+        }
+
+        std::vector<std::string> extensions = query_gl_extensions(is_gles, gles2_);
+
+        auto has_extension = [&extensions](const char *name) {
+            return std::find(extensions.begin(), extensions.end(), name) != extensions.end();
+        };
+
+        if (!is_gles && (major_gl < 4) && !has_extension("GL_ARB_draw_elements_base_vertex")) {
+            LOG_ERROR(DRIVER_GRAPHICS, "Some OpenGL extensions are missing in order for the emulator to work.");
+            LOG_ERROR(DRIVER_GRAPHICS, "Please upgrade your machine! Missing: GL_ARB_draw_elements_base_vertex");
+        }
+
+        if (is_gles) {
+            // ETC2 is core in GLES 3.0. On GLES 2.0 ETC1 is common, but it is
+            // not ETC2; the decoder below handles both, so leave the flag off.
+            if (!gles2_) {
+                feature_flags_ |= OGL_FEATURE_SUPPORT_ETC2;
+            }
+        } else if (minor_gl >= 3) {
+            feature_flags_ |= OGL_FEATURE_SUPPORT_ETC2;
+        }
+
+        for (const std::string &extension : extensions) {
+            if (extension == "GL_ARB_ES3_compatibility") {
                 feature_flags_ |= OGL_FEATURE_SUPPORT_ETC2;
             }
 
-            if (strcmp(reinterpret_cast<const char*>(next_extension), "GL_IMG_texture_compression_pvrtc") == 0) {
+            if (extension == "GL_IMG_texture_compression_pvrtc") {
                 feature_flags_ |= OGL_FEATURE_SUPPORT_PVRTC;
             }
 
-            if (strcmp(reinterpret_cast<const char*>(next_extension), "GL_EXT_texture_filter_anisotropic") == 0) {
+            if (extension == "GL_EXT_texture_filter_anisotropic") {
                 feature_flags_ |= OGL_FEATURE_SUPPORT_ANISOTROPHY;
 
                 anisotrophy_max_ = 1.0f;
                 glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &anisotrophy_max_);
             }
 
-            if (strcmp(reinterpret_cast<const char*>(next_extension), "GL_ARB_ES2_compatibility") == 0) {
+            if (extension == "GL_ARB_ES2_compatibility") {
                 feature_flags_ |= OGL_FEATURE_SUPPORT_GLSL_ES_100;
             }
 
-            if (strcmp(reinterpret_cast<const char*>(next_extension), "GL_ARB_ES3_1_compatibility") == 0) {
+            if (extension == "GL_ARB_ES3_1_compatibility") {
                 feature_flags_ |= OGL_FEATURE_COMPABILITY_ES31;
             }
         }
+
+#if EKA2L1_PLATFORM(ANDROID) || EKA2L1_PLATFORM(MEEGO)
+        if (gles2_) {
+            resolve_es2_extensions(extensions);
+
+            if (!ogl_es2_caps().has_vao) {
+                LOG_CRITICAL(DRIVER_GRAPHICS, "GL_OES_vertex_array_object is required by the OpenGL ES 2.0 backend");
+            }
+
+            LOG_INFO(DRIVER_GRAPHICS, "OpenGL ES 2.0 extensions: VAO={} instancing={} base_vertex={} blit={} ETC1={}",
+                ogl_es2_caps().has_vao, ogl_es2_caps().has_instancing, ogl_es2_caps().has_base_vertex,
+                ogl_es2_caps().has_framebuffer_blit, ogl_es2_caps().has_etc1);
+        }
+#endif
 
         std::string feature = "";
 
@@ -371,6 +509,7 @@ namespace eka2l1::drivers {
         color_loc = sprite_program->get_uniform_location("u_color").value_or(-1);
         proj_loc = sprite_program->get_uniform_location("u_proj").value_or(-1);
         model_loc = sprite_program->get_uniform_location("u_model").value_or(-1);
+        pen_dist_loc_ = pen_program->get_attrib_location("in_dist").value_or(-1);
         in_position_loc = is_stricted() ? 0 : sprite_program->get_attrib_location("in_position").value_or(-1);
         in_texcoord_loc = is_stricted() ? 1 : sprite_program->get_attrib_location("in_texcoord").value_or(-1);
 
@@ -411,7 +550,14 @@ namespace eka2l1::drivers {
 
         std::string extra_header = "";
 
-        if ((pending_upscale_shader_ == "default") || (pending_upscale_shader_ == "Default")) {
+        if ((pending_upscale_shader_ == "default") || (pending_upscale_shader_ == "Default")
+            || gles2_) {
+            // The bundled upscale filters are GLSL 130+/ES 3.00 sources.
+            if (gles2_ && (pending_upscale_shader_ != "default") && (pending_upscale_shader_ != "Default")) {
+                LOG_WARN(DRIVER_GRAPHICS, "Custom upscale shader '{}' is not available on GLES 2.0, using the default filter",
+                    pending_upscale_shader_);
+            }
+
             pending_upscale_shader_ = sprite_upscaled_f_path;
         } else {
             pending_upscale_shader_ = "resources//upscale//" + pending_upscale_shader_ + ".frag";
@@ -924,7 +1070,18 @@ namespace eka2l1::drivers {
                 LOG_ERROR(DRIVER_GRAPHICS, "draw_indexed with non-zero base vertex ({}) is unsupported on iOS; geometry will use the wrong vertices", vert_off);
             }
 #endif
-            glDrawElementsBaseVertex(prim_mode_to_gl_enum(prim_mode), count, data_format_to_gl_enum(val_type), reinterpret_cast<GLvoid *>(index_off_64), vert_off);
+
+            if (gles2_ && !ogl_es2_caps().has_base_vertex) {
+                static bool base_vertex_warned = false;
+                if (!base_vertex_warned) {
+                    base_vertex_warned = true;
+                    LOG_ERROR(DRIVER_GRAPHICS, "draw_indexed with non-zero base vertex ({}) needs GL_OES_draw_elements_base_vertex; geometry will use the wrong vertices", vert_off);
+                }
+
+                glDrawElements(prim_mode_to_gl_enum(prim_mode), count, data_format_to_gl_enum(val_type), reinterpret_cast<GLvoid *>(index_off_64));
+            } else {
+                glDrawElementsBaseVertex(prim_mode_to_gl_enum(prim_mode), count, data_format_to_gl_enum(val_type), reinterpret_cast<GLvoid *>(index_off_64), vert_off);
+            }
         }
     }
 
@@ -942,6 +1099,14 @@ namespace eka2l1::drivers {
         }
 
         if (instance_count == 0) {
+            glDrawArrays(prim_mode_to_gl_enum(prim_mode), first, count);
+        } else if (gles2_ && !ogl_es2_caps().has_instancing) {
+            static bool instancing_warned = false;
+            if (!instancing_warned) {
+                instancing_warned = true;
+                LOG_ERROR(DRIVER_GRAPHICS, "Instanced drawing needs GL_EXT_instanced_arrays; drawing the first instance only");
+            }
+
             glDrawArrays(prim_mode_to_gl_enum(prim_mode), first, count);
         } else {
             glDrawArraysInstanced(prim_mode_to_gl_enum(prim_mode), first, count, instance_count);
@@ -1273,11 +1438,12 @@ namespace eka2l1::drivers {
         }
 
         if (clear_bits & draw_buffer_bit_depth_buffer) {
-#ifdef EKA2L1_PLATFORM_ANDROID
-            glClearDepthf(color_to_clear[4]);
-#else
-            glClearDepth(color_to_clear[4]);
-#endif
+            if (is_gles) {
+                glClearDepthf(color_to_clear[4]);
+            } else {
+                glClearDepth(color_to_clear[4]);
+            }
+
             gl_flags |= GL_DEPTH_BUFFER_BIT;
         }
 
@@ -1333,7 +1499,15 @@ namespace eka2l1::drivers {
         pen_program->use(this);
 
         glUniform1f(point_size_loc_pen, point_size);
-        glUniform1ui(pattern_bytes_loc_pen, bit_pattern);
+
+        if (gles2_) {
+            // GLES 2.0 has no unsigned integer uniforms (and GLSL ES 1.00 has
+            // no integer bitwise operators), so the pen shader takes the
+            // 16-bit pattern as a float and extracts bits arithmetically.
+            glUniform1f(pattern_bytes_loc_pen, static_cast<GLfloat>(bit_pattern));
+        } else {
+            glUniform1ui(pattern_bytes_loc_pen, bit_pattern);
+        }
         
         glm::mat4 model_matrix = glm::identity<glm::mat4>();
 
@@ -1358,17 +1532,38 @@ namespace eka2l1::drivers {
 
         prepare_draw_lines_shared();
 
-        GLfloat data_send_array[] = {
-            static_cast<float>(start.x), static_cast<float>(start.y),
-            static_cast<float>(end.x), static_cast<float>(end.y)
-        };
-
         glBindVertexArray(pen_vao);
         glBindBuffer(GL_ARRAY_BUFFER, pen_vbo);
         glEnableVertexAttribArray(0);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(data_send_array), nullptr, GL_STATIC_DRAW);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(data_send_array), data_send_array, GL_STATIC_DRAW);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (GLvoid *)0);
+
+        if (gles2_) {
+            const GLfloat delta_x = static_cast<GLfloat>(end.x - start.x);
+            const GLfloat delta_y = static_cast<GLfloat>(end.y - start.y);
+            const GLfloat segment_length = std::sqrt(delta_x * delta_x + delta_y * delta_y) * 2.0f;
+
+            GLfloat data_send_array[] = {
+                static_cast<GLfloat>(start.x), static_cast<GLfloat>(start.y), 0.0f,
+                static_cast<GLfloat>(end.x), static_cast<GLfloat>(end.y), segment_length
+            };
+
+            glBufferData(GL_ARRAY_BUFFER, sizeof(data_send_array), data_send_array, GL_STATIC_DRAW);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (GLvoid *)0);
+
+            if (pen_dist_loc_ >= 0) {
+                glEnableVertexAttribArray(pen_dist_loc_);
+                glVertexAttribPointer(pen_dist_loc_, 1, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat),
+                    reinterpret_cast<GLvoid *>(2 * sizeof(GLfloat)));
+            }
+        } else {
+            GLfloat data_send_array[] = {
+                static_cast<float>(start.x), static_cast<float>(start.y),
+                static_cast<float>(end.x), static_cast<float>(end.y)
+            };
+
+            glBufferData(GL_ARRAY_BUFFER, sizeof(data_send_array), nullptr, GL_STATIC_DRAW);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(data_send_array), data_send_array, GL_STATIC_DRAW);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (GLvoid *)0);
+        }
 
         glDrawArrays(GL_LINES, 0, 2);
     }
@@ -1386,22 +1581,57 @@ namespace eka2l1::drivers {
         glBindVertexArray(pen_vao);
         glBindBuffer(GL_ARRAY_BUFFER, pen_vbo);
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 2, GL_INT, GL_FALSE, 8, (GLvoid *)0);
-        glBufferData(GL_ARRAY_BUFFER, point_count * 8, nullptr, GL_STATIC_DRAW);
-        glBufferData(GL_ARRAY_BUFFER, point_count * 8, point_list, GL_STATIC_DRAW);
 
-        // Generate indices for force primitive restart
-        // Don't try to recreate buffer (note that nullptr upper is a method of fast clearing)
-        std::vector<std::uint32_t> indicies((point_count - 1) * 2);
-        for (std::size_t i = 0; i < point_count - 1; i++) {
-            indicies[i * 2] = static_cast<std::uint32_t>(i);
-            indicies[i * 2 + 1] = static_cast<std::uint32_t>(i + 1);
+        if (gles2_) {
+            // GLES 2.0 cannot draw GL_INT vertices, and GLSL ES 1.00 has no
+            // flat interpolation. Expand each segment into two vertices and
+            // carry the distance from the segment start as a second attribute,
+            // which gives the stipple shader the same information.
+            std::vector<GLfloat> expanded;
+            expanded.reserve((point_count - 1) * 6);
+
+            for (std::size_t i = 0; i < point_count - 1; i++) {
+                const GLfloat delta_x = static_cast<GLfloat>(point_list[i + 1].x - point_list[i].x);
+                const GLfloat delta_y = static_cast<GLfloat>(point_list[i + 1].y - point_list[i].y);
+                const GLfloat segment_length = std::sqrt(delta_x * delta_x + delta_y * delta_y) * 2.0f;
+
+                expanded.push_back(static_cast<GLfloat>(point_list[i].x));
+                expanded.push_back(static_cast<GLfloat>(point_list[i].y));
+                expanded.push_back(0.0f);
+
+                expanded.push_back(static_cast<GLfloat>(point_list[i + 1].x));
+                expanded.push_back(static_cast<GLfloat>(point_list[i + 1].y));
+                expanded.push_back(segment_length);
+            }
+
+            glBufferData(GL_ARRAY_BUFFER, expanded.size() * sizeof(GLfloat), expanded.data(), GL_STATIC_DRAW);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (GLvoid *)0);
+
+            if (pen_dist_loc_ >= 0) {
+                glEnableVertexAttribArray(pen_dist_loc_);
+                glVertexAttribPointer(pen_dist_loc_, 1, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat),
+                    reinterpret_cast<GLvoid *>(2 * sizeof(GLfloat)));
+            }
+
+            glDrawArrays(GL_LINES, 0, static_cast<GLsizei>((point_count - 1) * 2));
+        } else {
+            glVertexAttribPointer(0, 2, GL_INT, GL_FALSE, 8, (GLvoid *)0);
+            glBufferData(GL_ARRAY_BUFFER, point_count * 8, nullptr, GL_STATIC_DRAW);
+            glBufferData(GL_ARRAY_BUFFER, point_count * 8, point_list, GL_STATIC_DRAW);
+
+            // Generate indices for force primitive restart
+            // Don't try to recreate buffer (note that nullptr upper is a method of fast clearing)
+            std::vector<std::uint32_t> indicies((point_count - 1) * 2);
+            for (std::size_t i = 0; i < point_count - 1; i++) {
+                indicies[i * 2] = static_cast<std::uint32_t>(i);
+                indicies[i * 2 + 1] = static_cast<std::uint32_t>(i + 1);
+            }
+
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, pen_ibo);
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, indicies.size() * sizeof(int), indicies.data(), GL_STATIC_DRAW);
+
+            glDrawElements(GL_LINES, static_cast<GLsizei>(indicies.size()), GL_UNSIGNED_INT, 0);
         }
-
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, pen_ibo);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indicies.size() * sizeof(int), indicies.data(), GL_STATIC_DRAW);
-
-        glDrawElements(GL_LINES, static_cast<GLsizei>(indicies.size()), GL_UNSIGNED_INT, 0);
 
         delete[] point_list;
     }
@@ -1687,8 +1917,14 @@ namespace eka2l1::drivers {
         }
 
         GLint read_fb, draw_fb;
-        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_fb);
-        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw_fb);
+        if (gles2_) {
+            glGetIntegerv(GL_FRAMEBUFFER_BINDING, &read_fb);
+            draw_fb = read_fb;
+        } else {
+            glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_fb);
+            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw_fb);
+        }
+
         const auto source = cmd.data_[0];
         ogl_framebuffer *fb = nullptr;
         if (source & HANDLE_BITMAP) {
@@ -1706,7 +1942,20 @@ namespace eka2l1::drivers {
                 return;
             }
         }
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, fb ? fb->get_fbo() : context_->swapchain_framebuffer());
+
+        const GLenum read_bind_target = gles2_ ? GL_FRAMEBUFFER : GL_READ_FRAMEBUFFER;
+        const GLenum draw_bind_target = gles2_ ? GL_FRAMEBUFFER : GL_DRAW_FRAMEBUFFER;
+
+        auto restore_bindings = [&]() {
+            if (gles2_) {
+                glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(read_fb));
+            } else {
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(read_fb));
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(draw_fb));
+            }
+        };
+
+        glBindFramebuffer(read_bind_target, fb ? fb->get_fbo() : context_->swapchain_framebuffer());
 
         std::int32_t dimension, level, x, y, width, height, dx, dy, dw, dh;
         unpack_u64_to_2u32(cmd.data_[2], dimension, level);
@@ -1716,57 +1965,87 @@ namespace eka2l1::drivers {
         unpack_u64_to_2u32(cmd.data_[6], dw, dh);
         const GLenum target = dimension == 2 ? GL_TEXTURE_2D : GL_TEXTURE_CUBE_MAP_POSITIVE_X + dimension - 4;
         if (width <= 0 || height <= 0 || dw <= 0 || dh <= 0) {
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, read_fb);
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, draw_fb);
+            restore_bindings();
             return;
         }
-        if (cmd.data_[7]) {
-            // Legacy alpha is stored in R, and luminance-alpha in RG on the host.
-            const bool luminance_alpha = tex->get_format() == texture_format::rg8;
-            const std::size_t components = luminance_alpha ? 2 : 1;
+
+        const bool cpu_copy = (cmd.data_[7] != 0)
+            || (gles2_ && !ogl_es2_caps().has_framebuffer_blit);
+
+        if (cpu_copy) {
+            // GLES 2.0 has no glBlitFramebuffer (unless the EXT/NV/ANGLE
+            // extension is present). Read the source back and upload it, which
+            // also handles the legacy single/two-channel destinations.
+            const bool alpha_as_last_channel = (cmd.data_[7] != 0);
             std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width) * height * 4);
-            std::vector<std::uint8_t> converted(static_cast<std::size_t>(dw) * dh * components);
-            GLint pack_alignment, pack_row_length;
+            std::vector<std::uint8_t> converted(static_cast<std::size_t>(dw) * dh * 4);
+            GLint pack_alignment = 4;
             glGetIntegerv(GL_PACK_ALIGNMENT, &pack_alignment);
-            glGetIntegerv(GL_PACK_ROW_LENGTH, &pack_row_length);
             glPixelStorei(GL_PACK_ALIGNMENT, 1);
-            glPixelStorei(GL_PACK_ROW_LENGTH, 0);
-            glReadPixels(x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+            if (!gles2_) {
+                GLint pack_row_length = 0;
+                glGetIntegerv(GL_PACK_ROW_LENGTH, &pack_row_length);
+                glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+                glReadPixels(x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+                glPixelStorei(GL_PACK_ROW_LENGTH, pack_row_length);
+            } else {
+                glReadPixels(x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            }
+
             glPixelStorei(GL_PACK_ALIGNMENT, pack_alignment);
-            glPixelStorei(GL_PACK_ROW_LENGTH, pack_row_length);
+
             for (int row = 0; row < dh; ++row) {
                 for (int col = 0; col < dw; ++col) {
                     const auto src = (static_cast<std::size_t>((2 * row + 1) * height / (2 * dh)) * width
                         + (2 * col + 1) * width / (2 * dw)) * 4;
-                    const auto dest = (static_cast<std::size_t>(row) * dw + col) * components;
-                    if (luminance_alpha) {
-                        converted[dest] = pixels[src];
+
+                    auto *dest = converted.data() + (static_cast<std::size_t>(row) * dw + col) * 4;
+
+                    if (alpha_as_last_channel) {
+                        // Stored as RGBA on GLES 2.0: replicate the red channel
+                        // into RGB (luminance) and carry the alpha as-is. Alpha
+                        // only textures read just the alpha channel.
+                        dest[0] = pixels[src];
+                        dest[1] = pixels[src];
+                        dest[2] = pixels[src];
+                        dest[3] = pixels[src + 3];
+                    } else {
+                        dest[0] = pixels[src];
+                        dest[1] = pixels[src + 1];
+                        dest[2] = pixels[src + 2];
+                        dest[3] = pixels[src + 3];
                     }
-                    converted[dest + components - 1] = pixels[src + 3];
                 }
             }
+
             const GLenum bind_target = dimension == 2 ? GL_TEXTURE_2D : GL_TEXTURE_CUBE_MAP;
-            GLint binding, unpack_alignment, unpack_row_length;
+            GLint binding, unpack_alignment;
             glGetIntegerv(dimension == 2 ? GL_TEXTURE_BINDING_2D : GL_TEXTURE_BINDING_CUBE_MAP, &binding);
             glGetIntegerv(GL_UNPACK_ALIGNMENT, &unpack_alignment);
-            glGetIntegerv(GL_UNPACK_ROW_LENGTH, &unpack_row_length);
             glBindTexture(bind_target, static_cast<GLuint>(tex->driver_handle()));
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-            glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-            glTexSubImage2D(target, level, dx, dy, dw, dh, luminance_alpha ? GL_RG : GL_RED,
-                GL_UNSIGNED_BYTE, converted.data());
+
+            if (!gles2_) {
+                GLint unpack_row_length = 0;
+                glGetIntegerv(GL_UNPACK_ROW_LENGTH, &unpack_row_length);
+                glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+                glTexSubImage2D(target, level, dx, dy, dw, dh, GL_RGBA, GL_UNSIGNED_BYTE, converted.data());
+                glPixelStorei(GL_UNPACK_ROW_LENGTH, unpack_row_length);
+            } else {
+                glTexSubImage2D(target, level, dx, dy, dw, dh, GL_RGBA, GL_UNSIGNED_BYTE, converted.data());
+            }
+
             glPixelStorei(GL_UNPACK_ALIGNMENT, unpack_alignment);
-            glPixelStorei(GL_UNPACK_ROW_LENGTH, unpack_row_length);
-            glBindTexture(bind_target, binding);
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, read_fb);
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, draw_fb);
+            glBindTexture(bind_target, static_cast<GLuint>(binding));
+            restore_bindings();
             return;
         }
 
         GLuint dest_fb = 0;
         glGenFramebuffers(1, &dest_fb);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dest_fb);
-        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, target,
+        glBindFramebuffer(draw_bind_target, dest_fb);
+        glFramebufferTexture2D(draw_bind_target, GL_COLOR_ATTACHMENT0, target,
             static_cast<GLuint>(tex->driver_handle()), level);
         const GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
         glDisable(GL_SCISSOR_TEST);
@@ -1774,9 +2053,9 @@ namespace eka2l1::drivers {
         if (scissor) {
             glEnable(GL_SCISSOR_TEST);
         }
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, read_fb);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, draw_fb);
+        glBindFramebuffer(draw_bind_target, 0);
         glDeleteFramebuffers(1, &dest_fb);
+        restore_bindings();
     }
 
     void ogl_graphics_driver::read_framebuffer(command &cmd) {
@@ -1799,10 +2078,17 @@ namespace eka2l1::drivers {
         unpack_u64_to_2u32(cmd.data_[2], x, y);
         unpack_u64_to_2u32(cmd.data_[3], width, height);
 
-        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &last_read_fb);
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, fb ? fb->get_fbo() : 0);
-        glReadPixels(x, y, width, height, format, type, reinterpret_cast<std::uint64_t*>(cmd.data_[4]));
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, last_read_fb);
+        if (gles2_) {
+            glGetIntegerv(GL_FRAMEBUFFER_BINDING, &last_read_fb);
+            glBindFramebuffer(GL_FRAMEBUFFER, fb ? fb->get_fbo() : 0);
+            glReadPixels(x, y, width, height, format, type, reinterpret_cast<std::uint64_t*>(cmd.data_[4]));
+            glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(last_read_fb));
+        } else {
+            glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &last_read_fb);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, fb ? fb->get_fbo() : 0);
+            glReadPixels(x, y, width, height, format, type, reinterpret_cast<std::uint64_t*>(cmd.data_[4]));
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, last_read_fb);
+        }
 
         finish(cmd.status_, 0);
     }
@@ -1813,7 +2099,7 @@ namespace eka2l1::drivers {
         glGetIntegerv(GL_ACTIVE_TEXTURE, &backup.last_active_texture);
         glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &backup.last_array_buffer);
         glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &backup.last_element_array_buffer);
-        glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &backup.last_vertex_array);
+        glGetIntegerv(gles2_ ? EKA2L1_GL_VERTEX_ARRAY_BINDING_OES : GL_VERTEX_ARRAY_BINDING, &backup.last_vertex_array);
         glGetIntegerv(GL_BLEND_SRC_RGB, &backup.last_blend_src_rgb);
         glGetIntegerv(GL_BLEND_SRC_ALPHA, &backup.last_blend_src_alpha);
         glGetIntegerv(GL_BLEND_DST_RGB, &backup.last_blend_dst_rgb);

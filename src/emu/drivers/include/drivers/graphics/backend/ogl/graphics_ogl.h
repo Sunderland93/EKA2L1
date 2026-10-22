@@ -128,6 +128,7 @@ namespace eka2l1::drivers {
         GLint point_size_loc_pen;
         GLint pattern_bytes_loc_pen;
         GLint viewport_loc_pen;
+        GLint pen_dist_loc_;
 
         ogl_state backup;
         std::atomic_bool should_stop;
@@ -142,6 +143,7 @@ namespace eka2l1::drivers {
         eka2l1::vec2 new_surface_size_;
 
         bool is_gles;
+        bool gles2_;
         bool support_line_width_;
 
         std::uint32_t max_texture_size_ = 2048;
@@ -226,6 +228,10 @@ namespace eka2l1::drivers {
 
         bool is_stricted() const override {
             return is_gles;
+        }
+
+        bool is_gles2() const override {
+            return gles2_;
         }
 
         std::uint32_t max_texture_size() const override {

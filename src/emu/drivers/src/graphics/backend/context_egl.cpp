@@ -49,8 +49,15 @@ namespace eka2l1::drivers::graphics {
                                                          EGL_STENCIL_SIZE,
                                                          0,
                                                          EGL_NONE };
+    // On Harmattan the config picked here is later used with
+    // eglCreateWindowSurface, so it has to advertise window support.
+#if EKA2L1_PLATFORM(MEEGO)
+    static constexpr EGLint egl_fake_surface_type_es = EGL_WINDOW_BIT | EGL_PBUFFER_BIT;
+#else
+    static constexpr EGLint egl_fake_surface_type_es = EGL_PBUFFER_BIT;
+#endif
     static constexpr std::array<EGLint, 15> egl_fake_attribs_es{ EGL_SURFACE_TYPE,
-                                                              EGL_PBUFFER_BIT,
+                                                              egl_fake_surface_type_es,
                                                               EGL_RENDERABLE_TYPE,
                                                               EKA2L1_EGL_RENDERABLE_TYPE,
                                                               EGL_BLUE_SIZE,

@@ -261,6 +261,12 @@ set_property(TARGET eka2l1_qt APPEND PROPERTY LINK_DEPENDS
     "${PROJECT_SOURCE_DIR}/src/patch/commdb/group/commdb_v6.dll"
     "${PROJECT_SOURCE_DIR}/src/patch/commdb/group/commdb.dll.map")
 
+if (EKA2L1_MEEGO)
+    set(EKA2L1_SHADER_RESOURCE_DIR "${PROJECT_SOURCE_DIR}/src/emu/drivers/resources/gles2/")
+else()
+    set(EKA2L1_SHADER_RESOURCE_DIR "${PROJECT_SOURCE_DIR}/src/emu/drivers/resources/gl/")
+endif()
+
 add_custom_command(
         TARGET eka2l1_qt
         POST_BUILD
@@ -272,7 +278,7 @@ add_custom_command(
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/miscs/panic/panic.json" "$<TARGET_FILE_DIR:eka2l1_qt>"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/miscs/utils/leavehook.py" "$<TARGET_FILE_DIR:eka2l1_qt>/scripts/disabled/"
         COMMAND ${CMAKE_COMMAND} -E copy_directory "${PROJECT_SOURCE_DIR}/src/scripts/" "$<TARGET_FILE_DIR:eka2l1_qt>/scripts/"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory "${PROJECT_SOURCE_DIR}/src/emu/drivers/resources/gl/" "$<TARGET_FILE_DIR:eka2l1_qt>/resources/"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${EKA2L1_SHADER_RESOURCE_DIR}" "$<TARGET_FILE_DIR:eka2l1_qt>/resources/"
         COMMAND ${CMAKE_COMMAND} -E copy_directory "${PROJECT_SOURCE_DIR}/src/emu/drivers/resources/upscale/" "$<TARGET_FILE_DIR:eka2l1_qt>/resources/upscale/"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/src/emu/drivers/resources/defaultbank.hsb" "$<TARGET_FILE_DIR:eka2l1_qt>/resources/"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/src/emu/drivers/resources/defaultbank.sf2" "$<TARGET_FILE_DIR:eka2l1_qt>/resources/"

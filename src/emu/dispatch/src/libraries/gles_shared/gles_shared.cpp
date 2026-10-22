@@ -2159,6 +2159,54 @@ namespace eka2l1::dispatch {
         return row_stride * (size.y - 1) + row_size;
     }
 
+    // GLES 2.0 has no single/two-channel sized formats and no texture swizzle
+    // control, so ALPHA/LUMINANCE/LUMINANCE_ALPHA uploads are expanded to RGBA8
+    // on the CPU with the equivalent channel mapping baked in.
+    static bool is_es2_promoted_texture_format(const std::uint32_t format) {
+        return format == GL_ALPHA_EMU || format == GL_LUMINANCE_EMU || format == GL_LUMINANCE_ALPHA_EMU;
+    }
+
+    static std::vector<std::uint8_t> expand_es2_texture_data(const std::uint32_t format, const int width, const int height,
+        const std::uint8_t *source, const std::uint32_t unpack_alignment) {
+        std::vector<std::uint8_t> result(static_cast<std::size_t>(width) * height * 4, 0);
+        if (!source || (width <= 0) || (height <= 0)) {
+            return result;
+        }
+
+        const int components = (format == GL_LUMINANCE_ALPHA_EMU) ? 2 : 1;
+        const std::size_t source_row = static_cast<std::size_t>(width) * components;
+        const std::uint32_t alignment = unpack_alignment ? unpack_alignment : 1;
+        const std::size_t source_stride = (source_row + alignment - 1) / alignment * alignment;
+
+        for (int y = 0; y < height; y++) {
+            const std::uint8_t *source_line = source + static_cast<std::size_t>(y) * source_stride;
+            std::uint8_t *dest_line = result.data() + static_cast<std::size_t>(y) * width * 4;
+
+            for (int x = 0; x < width; x++) {
+                std::uint8_t *dest = dest_line + static_cast<std::size_t>(x) * 4;
+
+                if (format == GL_ALPHA_EMU) {
+                    dest[0] = 0;
+                    dest[1] = 0;
+                    dest[2] = 0;
+                    dest[3] = source_line[x];
+                } else if (format == GL_LUMINANCE_EMU) {
+                    dest[0] = source_line[x];
+                    dest[1] = source_line[x];
+                    dest[2] = source_line[x];
+                    dest[3] = 255;
+                } else {
+                    dest[0] = source_line[x * 2];
+                    dest[1] = source_line[x * 2];
+                    dest[2] = source_line[x * 2];
+                    dest[3] = source_line[x * 2 + 1];
+                }
+            }
+        }
+
+        return result;
+    }
+
     BRIDGE_FUNC_LIBRARY(void, gl_compressed_tex_image_2d_emu, std::uint32_t target, std::int32_t level, std::int32_t internal_format,
         std::int32_t width, std::int32_t height, std::int32_t border, std::uint32_t image_size, void *data_pixels) {
         egl_context_es_shared *ctx = get_es_shared_active_context(sys);
@@ -2424,6 +2472,24 @@ namespace eka2l1::dispatch {
         drivers::graphics_driver *drv = sys->get_graphics_driver();
         get_data_type_to_upload(internal_format_driver, format_driver, dtype, swizzles, format, data_type, drv->is_stricted());
 
+        std::vector<std::uint8_t> promoted_data;
+        const bool promote_to_rgba = drv->is_gles2() && (data_type == GL_UNSIGNED_BYTE_EMU) && is_es2_promoted_texture_format(format);
+
+        if (promote_to_rgba) {
+            promoted_data = expand_es2_texture_data(format, width, height, reinterpret_cast<const std::uint8_t *>(data_pixels),
+                ctx->unpack_alignment_);
+
+            internal_format_driver = drivers::texture_format::rgba;
+            format_driver = drivers::texture_format::rgba;
+            dtype = drivers::texture_data_type::ubyte;
+            swizzles = { drivers::channel_swizzle::red, drivers::channel_swizzle::green,
+                drivers::channel_swizzle::blue, drivers::channel_swizzle::alpha };
+
+            data_pixels = promoted_data.data();
+        }
+
+        const std::uint32_t upload_alignment = promote_to_rgba ? 1 : ctx->unpack_alignment_;
+
         // TODO: border is ignored!
         if (!tex->handle_value()) {
             need_set_params = true;
@@ -2436,7 +2502,7 @@ namespace eka2l1::dispatch {
                 ctx->texture_pools_2d_.pop();
             } else {
                 drivers::handle new_h = drivers::create_texture(drv, dimension, static_cast<std::uint8_t>(level), internal_format_driver,
-                    format_driver, dtype, data_pixels, 0, eka2l1::vec3(width, height, 0), 0, ctx->unpack_alignment_);
+                    format_driver, dtype, data_pixels, 0, eka2l1::vec3(width, height, 0), 0, upload_alignment);
 
                 if (!new_h) {
                     controller.push_error(ctx, GL_INVALID_OPERATION);
@@ -2449,9 +2515,11 @@ namespace eka2l1::dispatch {
         }
 
         if (need_reinstantiate) {
-            const std::size_t needed_size = calculate_possible_upload_size(eka2l1::vec2(width, height), format, data_type, ctx->unpack_alignment_);
+            const std::size_t needed_size = promote_to_rgba
+                ? promoted_data.size()
+                : calculate_possible_upload_size(eka2l1::vec2(width, height), format, data_type, ctx->unpack_alignment_);
             ctx->cmd_builder_.recreate_texture(tex->handle_value(), dimension, static_cast<std::uint8_t>(level), internal_format_driver,
-                format_driver, dtype, data_pixels, needed_size, eka2l1::vec3(width, height, 0), 0, ctx->unpack_alignment_);
+                format_driver, dtype, data_pixels, needed_size, eka2l1::vec3(width, height, 0), 0, upload_alignment);
         }
 
         if (need_set_params) {
@@ -2525,12 +2593,33 @@ namespace eka2l1::dispatch {
         drivers::texture_data_type dtype;
         drivers::channel_swizzles swizzles;
 
-        get_data_type_to_upload(internal_format_driver, format_driver, dtype, swizzles, format, data_type, sys->get_graphics_driver()->is_stricted());
+        drivers::graphics_driver *drv = sys->get_graphics_driver();
+        get_data_type_to_upload(internal_format_driver, format_driver, dtype, swizzles, format, data_type, drv->is_stricted());
 
-        const std::size_t needed_size = calculate_possible_upload_size(eka2l1::vec2(width, height), format, data_type, ctx->unpack_alignment_);
-        ctx->cmd_builder_.update_texture(tex->handle_value(), reinterpret_cast<const char*>(data_pixels), needed_size,
+        std::vector<std::uint8_t> promoted_data;
+        const bool promote_to_rgba = drv->is_gles2() && (data_type == GL_UNSIGNED_BYTE_EMU) && is_es2_promoted_texture_format(format);
+
+        const void *upload_data = data_pixels;
+        std::size_t needed_size = 0;
+        std::uint32_t upload_alignment = ctx->unpack_alignment_;
+
+        if (promote_to_rgba) {
+            promoted_data = expand_es2_texture_data(format, width, height, reinterpret_cast<const std::uint8_t *>(data_pixels),
+                ctx->unpack_alignment_);
+
+            format_driver = drivers::texture_format::rgba;
+            dtype = drivers::texture_data_type::ubyte;
+
+            upload_data = promoted_data.data();
+            needed_size = promoted_data.size();
+            upload_alignment = 1;
+        } else {
+            needed_size = calculate_possible_upload_size(eka2l1::vec2(width, height), format, data_type, ctx->unpack_alignment_);
+        }
+
+        ctx->cmd_builder_.update_texture(tex->handle_value(), reinterpret_cast<const char*>(upload_data), needed_size,
             static_cast<std::uint8_t>(level), format_driver, dtype, eka2l1::vec3(xoffset, yoffset, 0), eka2l1::vec3(width, height, 0),
-            0, ctx->unpack_alignment_);
+            0, upload_alignment);
 
         tex->set_mipmap_generated(false);
 

@@ -82,6 +82,14 @@ namespace eka2l1::drivers {
     bool ogl_texture::create(graphics_driver *driver, const int dim, const int miplvl, const vec3 &size, const texture_format internal_format,
         const texture_format format, const texture_data_type data_type, void *data, const std::size_t total_size, const std::size_t ppl,
         const std::uint32_t unpack_alignment) {
+        // There is no GL_TEXTURE_1D on GLES, and GLES 2.0 has no 3D textures.
+        // The emulator only ever asks for 2D and cube textures, but guard here
+        // so a stray request can never call an unloaded entry point.
+        if (driver && driver->is_gles2() && (dim == 1 || dim == 3)) {
+            LOG_ERROR(DRIVER_GRAPHICS, "1D/3D textures are not supported on OpenGL ES 2.0");
+            return false;
+        }
+
         if (!texture)
             glGenTextures(1, &texture);
 
@@ -89,6 +97,7 @@ namespace eka2l1::drivers {
         tex_size = size;
         tex_data_type = data_type;
         pixels_per_line = ppl;
+        gles2_ = driver && driver->is_gles2();
 
         bind(driver, 0);
 
@@ -97,7 +106,10 @@ namespace eka2l1::drivers {
 
         bool res = true;
 
-        glPixelStorei(GL_UNPACK_ROW_LENGTH, static_cast<GLint>(pixels_per_line));
+        if (!gles2_) {
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, static_cast<GLint>(pixels_per_line));
+        }
+
         glPixelStorei(GL_UNPACK_ALIGNMENT, static_cast<GLint>(unpack_alignment));
 
         drivers::texture_format converted_internal_format = internal_format;
@@ -206,7 +218,10 @@ namespace eka2l1::drivers {
             }
         }
 
-        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        if (!gles2_) {
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        }
+
         unbind(driver);
 
         if (!res) {
@@ -269,6 +284,12 @@ namespace eka2l1::drivers {
     }
 
     void ogl_texture::set_channel_swizzle(channel_swizzles swizz) {
+        if (gles2_) {
+            // GLES 2.0 has no texture swizzle. Single/two-channel uploads are
+            // expanded to RGBA8 on the CPU with the equivalent mapping baked in.
+            return;
+        }
+
         GLint swizz_gl[4];
 
         for (int i = 0; i < 4; i++) {
@@ -330,9 +351,17 @@ namespace eka2l1::drivers {
 
     void ogl_texture::update_data(graphics_driver *driver, const int mip_lvl, const vec3 &offset, const vec3 &size, const std::size_t pixels_per_line,
         const texture_format data_format, const texture_data_type data_type, const void *data, const std::size_t data_size, const std::uint32_t alg) {
+        gles2_ = driver && driver->is_gles2();
+
+        if (gles2_ && (dimensions == 1 || dimensions == 3)) {
+            return;
+        }
         bind(driver, 0);
 
-        glPixelStorei(GL_UNPACK_ROW_LENGTH, static_cast<GLint>(pixels_per_line));
+        if (!gles2_) {
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, static_cast<GLint>(pixels_per_line));
+        }
+
         glPixelStorei(GL_UNPACK_ALIGNMENT, static_cast<GLint>(alg));
 
         drivers::texture_format converted_format = data_format;
@@ -393,11 +422,19 @@ namespace eka2l1::drivers {
             }
         }
 
-        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        if (!gles2_) {
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        }
+
         unbind(driver);
     }
 
     void ogl_texture::set_max_mip_level(const std::uint32_t max_mip) {
+        if (gles2_) {
+            // GL_TEXTURE_MAX_LEVEL is only available from GLES 3.0 onwards.
+            return;
+        }
+
         bind(nullptr, 0);
         glTexParameteri(to_gl_tex_dim(dimensions), GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(max_mip));
         unbind(nullptr);
