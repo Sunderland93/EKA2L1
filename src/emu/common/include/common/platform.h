@@ -114,6 +114,15 @@
 #endif
 #endif
 
+// MeeGo Harmattan 1.2 (Nokia N9). The device is a Linux/POSIX system, so it
+// keeps EKA2L1_PLATFORM_UNIX as well, but it has neither X11 nor Wayland, no
+// SDL2 and only OpenGL ES 2.0, so the code paths that assume those have to be
+// excluded. __HARMATTAN__ is defined by cmake/harmattan.toolchain.cmake,
+// because the Harmattan sysroot does not carry a compiler-provided marker.
+#ifdef __HARMATTAN__
+#define EKA2L1_PLATFORM_MEEGO 1
+#endif
+
 #if EKA2L1_PLATFORM(ANDROID) || EKA2L1_PLATFORM(UNIX) || EKA2L1_PLATFORM(MACOS) || EKA2L1_PLATFORM(IOS)
 #define EKA2L1_PLATFORM_POSIX 1
 #endif

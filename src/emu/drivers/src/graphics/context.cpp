@@ -28,6 +28,8 @@
 #include "backend/context_agl.h"
 #elif EKA2L1_PLATFORM(ANDROID)
 #include "backend/context_egl_android.h"
+#elif EKA2L1_PLATFORM(MEEGO)
+#include "backend/context_egl.h"
 #elif EKA2L1_PLATFORM(UNIX)
 #include "backend/context_wayland.h"
 #include "backend/context_glx.h"
@@ -46,6 +48,9 @@ namespace eka2l1::drivers::graphics {
         return std::make_unique<gl_context_agl>(system_info, stereo, core);
 #elif EKA2L1_PLATFORM(ANDROID)
         return std::make_unique<gl_context_egl_android>(system_info, stereo, core);
+#elif EKA2L1_PLATFORM(MEEGO)
+        // The PowerVR SGX of the N9 only speaks OpenGL ES.
+        return std::make_unique<gl_context_egl>(system_info, stereo, core, true);
 #elif EKA2L1_PLATFORM(UNIX)
         if (system_info.type == window_system_type::wayland) {
             return std::make_unique<gl_context_egl_wayland>(system_info, stereo, core);

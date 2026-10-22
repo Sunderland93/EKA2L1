@@ -245,6 +245,7 @@ namespace eka2l1::drivers {
         fbDev,
         haiku,
         iOS,
+        harmattan,
     };
 
     struct window_system_info {

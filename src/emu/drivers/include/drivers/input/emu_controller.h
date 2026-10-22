@@ -58,7 +58,8 @@ namespace eka2l1 {
         };
 
         enum class controller_type {
-            sdl2
+            sdl2,
+            null
         };
 
         using emu_controller_ptr = std::unique_ptr<emu_controller>;

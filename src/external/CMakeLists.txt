@@ -339,7 +339,7 @@ endif()
 
 # FFMPEG
 option(EKA2L1_IOS_ENABLE_FFMPEG "Build FFmpeg audio/video support on iOS" ON)
-if(NOT EKA2L1_IOS OR EKA2L1_IOS_ENABLE_FFMPEG)
+if((NOT EKA2L1_IOS OR EKA2L1_IOS_ENABLE_FFMPEG) AND (NOT EKA2L1_MEEGO OR EKA2L1_MEEGO_ENABLE_FFMPEG))
     add_subdirectory(ffmpeg)
     set(EKA2L1_HAVE_FFMPEG ON CACHE INTERNAL "FFmpeg is available for this build" FORCE)
 else()
@@ -399,7 +399,9 @@ set (TSF_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR} CACHE INTERNAL "TSF include path")
 
 # SDL2
 # Can't believe in 2022 the official CMake can't still ship a FindSDL2 with the program...
-if (NOT ANDROID AND NOT EKA2L1_IOS)
+# MeeGo Harmattan has no SDL2 in its sysroot; the device frontend uses Qt 4
+# instead, so SDL2 is left out of the build there.
+if (NOT ANDROID AND NOT EKA2L1_IOS AND NOT EKA2L1_MEEGO)
     set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/sdl2-cmake-scripts")
 
     if(APPLE)

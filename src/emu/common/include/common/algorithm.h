@@ -253,21 +253,22 @@ namespace eka2l1 {
         /*! Get the next power of two of some number. */
         template <typename T>
         T next_power_of_two(const T target) {
-            const std::uint8_t power = static_cast<std::uint8_t>(std::log2l(static_cast<long double>(target)));
-            return static_cast<T>(1ULL << (power + 1));
+            // Bit shifting rather than std::log2: Harmattan's eglibc 2.10 does
+            // not declare log2f/log2l, so libstdc++ omits every std::log2
+            // overload for that target.
+            T result = 1;
+
+            while (result <= target) {
+                result <<= 1;
+            }
+
+            return result;
         }
 
         /*! Check if the number is power of two. */
         template <typename T>
         bool is_power_of_two(const T target) {
-            T mask = 0;
-            T power = static_cast<T>(std::log2l(static_cast<long double>(target)));
-
-            for (T i = 0; i < power; ++i) {
-                mask += static_cast<T>(1 << i);
-            }
-
-            return !(target & mask);
+            return target != 0 && (target & (target - 1)) == 0;
         }
 
         /*! Do alignment */

@@ -65,7 +65,7 @@ TEST_CASE("store_near_page_crossing_with_no_tlb_miss", "mem_stress") {
     core->run(2);
 
 #define REQUIRE_POINTER_AT_CHAIN_OFFSET_EQUALS(offset, value) \
-    REQUIRE(*reinterpret_cast<std::uint32_t*>(env.pointer(PAGE_SIZE - 16 + offset)) == value)
+    REQUIRE(*reinterpret_cast<std::uint32_t*>(env.pointer(THE_PAGE_SIZE - 16 + offset)) == value)
 
     REQUIRE(core->get_reg(13) == THE_PAGE_SIZE - 16);
     REQUIRE_POINTER_AT_CHAIN_OFFSET_EQUALS(36, 2000);
@@ -113,7 +113,7 @@ TEST_CASE("store_da_near_page_crossing_with_no_tlb_miss", "mem_stress") {
     core->run(2);
 
     #define REQUIRE_POINTER_AT_CHAIN_OFFSET_EQUALS(offset, value) \
-        REQUIRE(*reinterpret_cast<std::uint32_t*>(env.pointer(PAGE_SIZE - 12 + offset)) == value)
+        REQUIRE(*reinterpret_cast<std::uint32_t*>(env.pointer(THE_PAGE_SIZE - 12 + offset)) == value)
 
     REQUIRE(core->get_reg(13) == THE_PAGE_SIZE - 16);
     REQUIRE_POINTER_AT_CHAIN_OFFSET_EQUALS(36, 2000);

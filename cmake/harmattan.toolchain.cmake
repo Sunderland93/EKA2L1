@@ -72,14 +72,27 @@ set(CMAKE_SYSTEM_VERSION_STRING "Harmattan (Linux 2.6.32, Maemo eglibc 2.10)")
 # to /lib/ld-linux-armhf.so.3 which does not exist on the device.
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-Wl,--dynamic-linker=/lib/ld-linux.so.3")
 
+# The Harmattan sysroot carries no compiler-provided platform marker, so the
+# port defines its own. src/emu/common/include/common/platform.h turns this
+# into EKA2L1_PLATFORM_MEEGO.
+#
 # Qt 4.7.4 on the device was compiled with GCC 4.4, so it uses the pre-C++11
 # copy-on-write std::string ABI. Everything that talks to Qt has to agree on
 # that ABI, and the C++ standard library shipped with the toolchain provides
 # both, so the old one is selected here.
-set(CMAKE_CXX_FLAGS_INIT "-D_GLIBCXX_USE_CXX11_ABI=0")
+#
+# _GLIBCXX_USE_C99_MATH_FUNCS and the force-included header are needed because
+# eglibc 2.10 does not declare the C99 long double math functions on ARM; see
+# cmake/harmattan_math_compat.h.
+set(CMAKE_C_FLAGS_INIT "-D__HARMATTAN__")
+set(CMAKE_CXX_FLAGS_INIT "-D__HARMATTAN__ -D_GLIBCXX_USE_CXX11_ABI=0 -D_GLIBCXX_USE_C99_MATH_FUNCS=1 -include \"${CMAKE_CURRENT_LIST_DIR}/harmattan_math_compat.h\"")
 
 # clock_gettime lives in librt on eglibc 2.10.
 set(CMAKE_THREAD_LIBS_INIT "-lpthread -lrt")
+
+# Tells the build system that this is the Harmattan target. Kept in the cache
+# so that it survives the toolchain file being re-read in try_compile scopes.
+set(EKA2L1_MEEGO ON CACHE INTERNAL "Building for MeeGo Harmattan")
 
 set(HARMATTAN_SYSROOT "${HARMATTAN_SYSROOT}" CACHE PATH "Harmattan sysroot used for this build")
 set(HARMATTAN_TOOLCHAIN "${HARMATTAN_TOOLCHAIN}" CACHE PATH "Cross toolchain prefix used for this build")

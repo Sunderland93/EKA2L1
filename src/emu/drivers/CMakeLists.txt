@@ -161,11 +161,21 @@ elseif (EKA2L1_IOS)
         src/sensor/backend/ios/sensor_ios.h
         include/drivers/sensor/backend/ios/controller_motion.h
         src/sensor/backend/ios/sensor_ios.mm)
+elseif (EKA2L1_MEEGO)
+    # MeeGo Harmattan has no SDL2. Input is fed by the device frontend and the
+    # vibrator stays the null backend, so only the portable pieces are built.
+    target_sources(drivers PRIVATE
+        include/drivers/input/backend/emu_controller_null.h
+        src/graphics/emu_window.cpp
+        src/input/backend/emu_controller_null.cpp
+        src/input/emu_controller.cpp)
 else()
     target_sources(drivers PRIVATE
+        include/drivers/input/backend/emu_controller_null.h
         include/drivers/input/backend/emu_controller_sdl2.h
         include/drivers/hwrm/backend/vibration_sdl2.h
         src/graphics/emu_window.cpp
+        src/input/backend/emu_controller_null.cpp
         src/input/backend/emu_controller_sdl2.cpp
         src/input/emu_controller.cpp
         src/hwrm/backend/vibration_sdl2.cpp
@@ -224,6 +234,15 @@ elseif(ANDROID)
         src/graphics/backend/context_egl_android.cpp
         src/graphics/backend/context_egl_android.h
     )
+elseif(EKA2L1_MEEGO)
+    # Harmattan only has EGL: there is no X11, no Wayland and no desktop GL.
+    # The device frontend hands over the native window of its Qt 4 widget.
+    target_sources(drivers PRIVATE
+        src/graphics/backend/context_egl.cpp
+        src/graphics/backend/context_egl.h
+    )
+
+    target_link_libraries(drivers PUBLIC EGL)
 else()
     find_package(X11 REQUIRED)
     find_package(OpenGL REQUIRED)
@@ -264,6 +283,11 @@ elseif (WIN32)
     target_link_libraries(drivers PRIVATE crypt32)
 elseif (ANDROID)
     target_sources(drivers PRIVATE src/network/tls_trust_android.cpp)
+elseif (EKA2L1_MEEGO)
+    # Harmattan has no Qt 6 (and its Qt 4 cannot be used for certificate
+    # verification from a non-Qt thread), so the trust store is read from the
+    # system CA bundle instead.
+    target_sources(drivers PRIVATE src/network/tls_trust_meego.cpp)
 else()
     find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Network)
     find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Network)
@@ -300,7 +324,7 @@ if (EKA2L1_HAVE_FFMPEG)
 endif()
 if (ANDROID)
     target_link_libraries(drivers PRIVATE android)
-elseif (NOT EKA2L1_IOS)
+elseif (NOT EKA2L1_IOS AND NOT EKA2L1_MEEGO)
     target_link_libraries(drivers PRIVATE SDL2)
 endif()
 

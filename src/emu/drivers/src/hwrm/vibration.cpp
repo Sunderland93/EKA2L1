@@ -23,7 +23,9 @@
 #include <drivers/hwrm/backend/vibration_jdk.h>
 #elif EKA2L1_PLATFORM(IOS)
 #include <drivers/hwrm/backend/vibration_ios.h>
-#elif !EKA2L1_PLATFORM(IOS)
+#elif EKA2L1_PLATFORM(MEEGO)
+#include <drivers/hwrm/backend/vibration_null.h>
+#else
 #include <drivers/hwrm/backend/vibration_sdl2.h>
 #endif
 
@@ -33,6 +35,8 @@ namespace eka2l1::drivers::hwrm {
         return std::make_unique<vibrator_jdk>();
 #elif EKA2L1_PLATFORM(IOS)
         return std::make_unique<vibrator_ios>();
+#elif EKA2L1_PLATFORM(MEEGO)
+        return std::make_unique<vibrator_null>();
 #else
         return std::make_unique<vibrator_sdl2>();
 #endif

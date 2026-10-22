@@ -37,7 +37,7 @@ namespace eka2l1::drivers::graphics {
     static constexpr std::array<EGLint, 15> egl_attribs_es{ EGL_SURFACE_TYPE,
                                                          EGL_WINDOW_BIT,
                                                          EGL_RENDERABLE_TYPE,
-                                                         EGL_OPENGL_ES3_BIT_KHR,
+                                                         EKA2L1_EGL_RENDERABLE_TYPE,
                                                          EGL_BLUE_SIZE,
                                                          8,
                                                          EGL_GREEN_SIZE,
@@ -52,7 +52,7 @@ namespace eka2l1::drivers::graphics {
     static constexpr std::array<EGLint, 15> egl_fake_attribs_es{ EGL_SURFACE_TYPE,
                                                               EGL_PBUFFER_BIT,
                                                               EGL_RENDERABLE_TYPE,
-                                                              EGL_OPENGL_ES3_BIT_KHR,
+                                                              EKA2L1_EGL_RENDERABLE_TYPE,
                                                               EGL_BLUE_SIZE,
                                                               8,
                                                               EGL_GREEN_SIZE,
@@ -83,7 +83,7 @@ namespace eka2l1::drivers::graphics {
                                                     10,
                                                     EGL_NONE };
     static constexpr std::array<EGLint, 5> egl_empty_attribs{ EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE };
-    static constexpr std::array<EGLint, 3> egl_context_attribs_es{ EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
+    static constexpr std::array<EGLint, 3> egl_context_attribs_es{ EGL_CONTEXT_CLIENT_VERSION, EKA2L1_EGL_CONTEXT_CLIENT_VERSION, EGL_NONE };
 
     bool gl_context_egl::is_headless() const {
         return !render_window;

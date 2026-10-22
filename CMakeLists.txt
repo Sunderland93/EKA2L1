@@ -13,6 +13,14 @@ else()
     set(EKA2L1_IOS OFF)
 endif()
 
+# MeeGo Harmattan detection. When building with cmake/harmattan.toolchain.cmake
+# the toolchain file puts EKA2L1_MEEGO into the cache before project() runs.
+if (EKA2L1_MEEGO)
+    set(EKA2L1_MEEGO ON)
+else()
+    set(EKA2L1_MEEGO OFF)
+endif()
+
 set(EKA2L1_IOS_DEPLOYMENT_TARGET "16.0" CACHE STRING "Minimum iOS version to target")
 
 option(EKA2L1_BUILD_TOOLS "Build EKA2L1's tool" ON)
@@ -86,6 +94,31 @@ if (EKA2L1_IOS)
     set(EKA2L1_DEPLOY_DMG OFF CACHE BOOL "Disabled on iOS" FORCE)
     set(EKA2L1_ENABLE_DISCORD_RICH_PRESENCE OFF CACHE BOOL "Disabled on iOS" FORCE)
     message(STATUS "iOS build: tools/tests/vulkan/patch/dmg/discord forced OFF; scripting is native-patch only (no LuaJIT)")
+endif()
+
+if (EKA2L1_MEEGO)
+    # The Harmattan device (Nokia N9) is a 2011 Linux phone: no Vulkan, no
+    # Discord client, no Qt 6 Multimedia, and the Symbian SDK patches are
+    # built on the host with a different toolchain anyway.
+    set(EKA2L1_BUILD_VULKAN_BACKEND OFF CACHE BOOL "Disabled on MeeGo Harmattan" FORCE)
+    set(EKA2L1_ENABLE_DISCORD_RICH_PRESENCE OFF CACHE BOOL "Disabled on MeeGo Harmattan" FORCE)
+    set(EKA2L1_ENABLE_QT_CAMERA OFF CACHE BOOL "Disabled on MeeGo Harmattan" FORCE)
+    set(EKA2L1_BUILD_PATCH OFF CACHE BOOL "Disabled on MeeGo Harmattan" FORCE)
+
+    # FFmpeg and LuaJIT are the two heaviest optional dependencies. They are
+    # off by default on the device because neither is needed to boot a ROM,
+    # and both build their own host-flavoured binaries.
+    option(EKA2L1_MEEGO_ENABLE_FFMPEG "Build FFmpeg audio/video support on MeeGo Harmattan" OFF)
+    option(EKA2L1_MEEGO_ENABLE_LUAJIT "Use the LuaJIT runtime for scripting on MeeGo Harmattan" OFF)
+
+    if (EKA2L1_MEEGO_ENABLE_LUAJIT)
+        set(EKA2L1_SCRIPTING_LUA ON CACHE BOOL "LuaJIT scripting on MeeGo Harmattan" FORCE)
+    else()
+        set(EKA2L1_SCRIPTING_LUA OFF CACHE BOOL "Native patches only on MeeGo Harmattan" FORCE)
+    endif()
+
+    message(STATUS "MeeGo Harmattan build: vulkan/discord/qt-camera/patch forced OFF; "
+        "FFmpeg=${EKA2L1_MEEGO_ENABLE_FFMPEG} LuaJIT=${EKA2L1_MEEGO_ENABLE_LUAJIT}")
 endif()
 
 

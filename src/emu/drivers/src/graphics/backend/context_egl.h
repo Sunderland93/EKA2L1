@@ -21,8 +21,7 @@
 
 #include <drivers/graphics/context.h>
 
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
+#include "egl_compat.h"
 
 namespace eka2l1::drivers::graphics {
     class gl_context_egl : public gl_context {

@@ -25,6 +25,10 @@
 #include <pthread.h>
 #endif
 
+#if EKA2L1_PLATFORM(MEEGO)
+#include <sys/prctl.h>
+#endif
+
 #if EKA2L1_PLATFORM(DARWIN)
 #include <pthread/qos.h>
 #endif
@@ -120,6 +124,11 @@ namespace eka2l1::common {
     void set_thread_name(const char *thread_name) {
 #if EKA2L1_PLATFORM(DARWIN)
         pthread_setname_np(thread_name);
+#elif EKA2L1_PLATFORM(MEEGO)
+        // Harmattan's libc has no pthread_setname_np; the kernel interface it
+        // would wrap is prctl(PR_SET_NAME), which truncates the name to 15
+        // characters plus the terminator.
+        prctl(PR_SET_NAME, thread_name, 0, 0, 0);
 #else
         pthread_setname_np(pthread_self(), thread_name);
 #endif
