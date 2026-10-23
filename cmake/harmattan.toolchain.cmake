@@ -87,6 +87,13 @@ set(CMAKE_EXE_LINKER_FLAGS_INIT "-Wl,--dynamic-linker=/lib/ld-linux.so.3")
 set(CMAKE_C_FLAGS_INIT "-D__HARMATTAN__")
 set(CMAKE_CXX_FLAGS_INIT "-D__HARMATTAN__ -D_GLIBCXX_USE_CXX11_ABI=0 -D_GLIBCXX_USE_C99_MATH_FUNCS=1 -include \"${CMAKE_CURRENT_LIST_DIR}/harmattan_math_compat.h\"")
 
+# The N9 is an OMAP3 Cortex-A8 with NEON. The gnueabihf cross compiler defaults
+# to a base armv7 tune without NEON; the flag is what enables GCC's NEON
+# auto-vectorization (bitmap conversion, memcpy-class loops in the core).
+# add_compile_options is used instead of *_FLAGS_INIT so that it also takes
+# effect on build trees configured before this was added.
+add_compile_options(-march=armv7-a -mfpu=neon)
+
 # clock_gettime lives in librt on eglibc 2.10.
 set(CMAKE_THREAD_LIBS_INIT "-lpthread -lrt")
 

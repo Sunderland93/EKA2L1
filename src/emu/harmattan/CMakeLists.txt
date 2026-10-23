@@ -27,6 +27,11 @@ add_executable(eka2l1_harmattan
 
 target_include_directories(eka2l1_harmattan PRIVATE include)
 
+# The device only ships GCC 4.4's libstdc++ (GLIBCXX_3.4.12), far older than
+# what this C++17/20 codebase needs. Link the standard C++ runtime statically
+# so the .deb does not have to carry a modern libstdc++ of its own.
+target_link_options(eka2l1_harmattan PRIVATE -static-libstdc++ -static-libgcc)
+
 target_link_libraries(eka2l1_harmattan PRIVATE
     ${QT_LIBRARIES}
     ${X11_LIBRARIES}
