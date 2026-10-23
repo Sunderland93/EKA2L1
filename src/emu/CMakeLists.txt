@@ -59,9 +59,7 @@ if (ANDROID)
 elseif (EKA2L1_IOS)
     add_subdirectory(ios)
 elseif (EKA2L1_MEEGO)
-    # The Harmattan frontend is not written yet; the port currently builds the
-    # emulator core without any window system.
-    message(STATUS "MeeGo Harmattan: building the emulator core only (no frontend yet)")
+    add_subdirectory(harmattan)
 else()
     add_subdirectory(qt)
 endif()

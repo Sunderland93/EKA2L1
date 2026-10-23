@@ -96,3 +96,18 @@ set(EKA2L1_MEEGO ON CACHE INTERNAL "Building for MeeGo Harmattan")
 
 set(HARMATTAN_SYSROOT "${HARMATTAN_SYSROOT}" CACHE PATH "Harmattan sysroot used for this build")
 set(HARMATTAN_TOOLCHAIN "${HARMATTAN_TOOLCHAIN}" CACHE PATH "Cross toolchain prefix used for this build")
+
+# Qt 4.7.4 for Harmattan ships without qmake/moc/uic/rcc in the sysroot. Madde
+# keeps host tools of the matching version in the target directory.
+if(NOT HARMATTAN_QT_QMAKE)
+    set(HARMATTAN_QT_QMAKE "$ENV{HARMATTAN_QT_QMAKE}")
+endif()
+if(NOT HARMATTAN_QT_QMAKE)
+    file(GLOB HARMATTAN_MADDE_TARGETS "$ENV{HOME}/Dev/QtSDK/Madde/targets/harmattan_*")
+    list(SORT HARMATTAN_MADDE_TARGETS)
+    list(GET HARMATTAN_MADDE_TARGETS -1 HARMATTAN_MADDE_TARGET)
+    set(HARMATTAN_QT_QMAKE "${HARMATTAN_MADDE_TARGET}/bin/qmake")
+endif()
+if(EXISTS "${HARMATTAN_QT_QMAKE}")
+    set(QT_QMAKE_EXECUTABLE "${HARMATTAN_QT_QMAKE}" CACHE FILEPATH "qmake used to locate the Harmattan Qt 4.7 SDK")
+endif()

@@ -59,6 +59,10 @@ namespace eka2l1::drivers::graphics {
         bool init_gl_for_shared(gl_context_egl *parent);
         bool create_context(EGLContext shared = nullptr, std::pair<int, int> *target_version = nullptr);
 
+#if EKA2L1_PLATFORM(MEEGO)
+        bool choose_window_config();
+#endif
+
         virtual void create_surface();
         virtual void destroy_surface();
 

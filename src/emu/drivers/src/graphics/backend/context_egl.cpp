@@ -20,6 +20,8 @@
 #include "context_egl.h"
 #include <common/log.h>
 
+#include <vector>
+
 namespace eka2l1::drivers::graphics {
     static constexpr std::array<EGLint, 13> egl_attribs{ EGL_SURFACE_TYPE,
                                                          EGL_WINDOW_BIT,
@@ -140,6 +142,76 @@ namespace eka2l1::drivers::graphics {
         return true;
     }
 
+#if EKA2L1_PLATFORM(MEEGO)
+    bool gl_context_egl::choose_window_config() {
+        // The window was already created by the frontend with a concrete X11
+        // visual, so a configuration whose EGL_NATIVE_VISUAL_ID differs from
+        // it would make eglCreateWindowSurface fail with EGL_BAD_MATCH.
+        // eglChooseConfig has no way to ask for a visual id, so enumerate.
+        EGLint config_count = 0;
+        if (eglGetConfigs(egl_display, nullptr, 0, &config_count) != EGL_TRUE || (config_count <= 0)) {
+            LOG_CRITICAL(DRIVER_GRAPHICS, "eglGetConfigs() returned no configurations");
+            return false;
+        }
+
+        std::vector<EGLConfig> configs(static_cast<std::size_t>(config_count));
+        if (eglGetConfigs(egl_display, configs.data(), config_count, &config_count) != EGL_TRUE) {
+            LOG_CRITICAL(DRIVER_GRAPHICS, "eglGetConfigs() failed");
+            return false;
+        }
+
+        EGLConfig fallback = nullptr;
+
+        for (EGLint i = 0; i < config_count; i++) {
+            EGLint surface_type = 0;
+            EGLint renderable_type = 0;
+            EGLint red_size = 0;
+            EGLint green_size = 0;
+            EGLint blue_size = 0;
+
+            if (eglGetConfigAttrib(egl_display, configs[i], EGL_SURFACE_TYPE, &surface_type) != EGL_TRUE ||
+                eglGetConfigAttrib(egl_display, configs[i], EGL_RENDERABLE_TYPE, &renderable_type) != EGL_TRUE ||
+                eglGetConfigAttrib(egl_display, configs[i], EGL_RED_SIZE, &red_size) != EGL_TRUE ||
+                eglGetConfigAttrib(egl_display, configs[i], EGL_GREEN_SIZE, &green_size) != EGL_TRUE ||
+                eglGetConfigAttrib(egl_display, configs[i], EGL_BLUE_SIZE, &blue_size) != EGL_TRUE) {
+                continue;
+            }
+
+            if (!(surface_type & EGL_WINDOW_BIT) || !(renderable_type & EKA2L1_EGL_RENDERABLE_TYPE)) {
+                continue;
+            }
+            if ((red_size < 5) || (green_size < 5) || (blue_size < 5)) {
+                continue;
+            }
+
+            if (!fallback) {
+                fallback = configs[i];
+            }
+
+            if (wsi.native_visual_id == 0) {
+                continue;
+            }
+
+            EGLint visual_id = 0;
+            if (eglGetConfigAttrib(egl_display, configs[i], EGL_NATIVE_VISUAL_ID, &visual_id) == EGL_TRUE &&
+                (static_cast<std::uint32_t>(visual_id) == wsi.native_visual_id)) {
+                egl_config = configs[i];
+                return true;
+            }
+        }
+
+        if (fallback) {
+            LOG_WARN(DRIVER_GRAPHICS, "No EGL config matches X11 visual 0x{:X}, using a fallback",
+                wsi.native_visual_id);
+            egl_config = fallback;
+            return true;
+        }
+
+        LOG_CRITICAL(DRIVER_GRAPHICS, "No EGL window configuration is usable for OpenGL ES 2");
+        return false;
+    }
+#endif
+
     void gl_context_egl::init_gl() {
         if (egl_display = eglGetDisplay(wsi.display_connection ? reinterpret_cast<EGLNativeDisplayType>(wsi.display_connection) : EGL_DEFAULT_DISPLAY); egl_display == EGL_NO_DISPLAY) {
             LOG_CRITICAL(DRIVER_GRAPHICS, "eglGetDisplay() failed");
@@ -156,6 +228,36 @@ namespace eka2l1::drivers::graphics {
         }
 
         if (m_opengl_mode == mode::opengl_es) {
+#if EKA2L1_PLATFORM(MEEGO)
+            // The frontend owns a native window and hands it over at driver
+            // creation time, so the context can be bound to a real window
+            // surface right away. This avoids rendering into a pbuffer that is
+            // never presented and keeps the EGL config in sync with the X11
+            // visual the window was created with.
+            if (wsi.render_window) {
+                if (!choose_window_config()) {
+                    return;
+                }
+
+                render_window = wsi.render_window;
+                create_surface();
+
+                if (egl_surface == EGL_NO_SURFACE) {
+                    return;
+                }
+
+                if (!create_context(nullptr, nullptr)) {
+                    return;
+                }
+
+                if (eglMakeCurrent(egl_display, egl_surface, egl_surface, egl_context) != EGL_TRUE) {
+                    LOG_CRITICAL(DRIVER_GRAPHICS, "eglMakeCurrent() failed");
+                    return;
+                }
+
+                return;
+            }
+#endif
             if (EGLint egl_num_configs{}; eglChooseConfig(egl_display, egl_fake_attribs_es.data(), &egl_config, 1,
                                 &egl_num_configs) != EGL_TRUE) {
                 LOG_CRITICAL(DRIVER_GRAPHICS, "eglChooseConfig() failed");

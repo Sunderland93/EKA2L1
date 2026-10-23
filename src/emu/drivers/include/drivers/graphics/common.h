@@ -275,6 +275,11 @@ namespace eka2l1::drivers {
         // Scale of the render surface. For hidpi systems, this will be >1.
         float render_surface_scale = 1.0f;
 
+        // Native visual id of render_window on windowing systems that expose
+        // one (X11). EGL window surfaces must use a configuration whose
+        // EGL_NATIVE_VISUAL_ID matches this value. Zero means "don't care".
+        std::uint32_t native_visual_id = 0;
+
         std::uint32_t surface_width = 0;
         std::uint32_t surface_height = 0;
     };
