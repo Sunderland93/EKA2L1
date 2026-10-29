@@ -344,15 +344,35 @@ namespace harmattan {
         {
             const std::lock_guard<std::recursive_mutex> guard(emu_.session_mutex);
 
-            if (emu_.applist) {
-                std::vector<apa_app_registry> &registries = emu_.applist->get_registerations();
+            if (emu_.symsys && emu_.applist) {
+                // session_mutex protects the frontend's pointers, not the OS loop.
+                // Stop guest execution before changing its processes, mappings and
+                // scheduler, and serialize with asynchronous kernel callbacks too.
+                // The Harmattan frontend does not otherwise pause the system.
+                emu_.symsys->pause();
+                struct resume_system {
+                    eka2l1::system *sys;
+                    ~resume_system() { sys->unpause(); }
+                } resume{emu_.symsys.get()};
 
-                if ((index >= 0) && (index < static_cast<int>(registries.size()))) {
-                    epoc::apa::command_line command;
-                    launched = emu_.applist->launch_app(registries[index], command, nullptr,
-                        [this](kernel::process *) {
-                            emit guest_app_exited();
-                        });
+                kernel_system *kern = emu_.symsys->get_kernel_system();
+                if (kern) {
+                    const std::lock_guard<kernel_system> kernel_guard(*kern);
+                    std::vector<apa_app_registry> &registries = emu_.applist->get_registerations();
+
+                    if ((index >= 0) && (index < static_cast<int>(registries.size()))) {
+                        LOG_INFO(FRONTEND_UI, "UI: creating guest application uid 0x{:X}",
+                            registries[index].mandatory_info.uid);
+                        epoc::apa::command_line command;
+                        launched = emu_.applist->launch_app(registries[index], command, nullptr,
+                            [this](kernel::process *) {
+                                emit guest_app_exited();
+                            });
+                        LOG_INFO(FRONTEND_UI, "UI: guest application creation returned {}", launched);
+                        if (launched) {
+                            kern->stop_cores_idling();
+                        }
+                    }
                 }
             }
         }
