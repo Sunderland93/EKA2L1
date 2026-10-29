@@ -103,6 +103,14 @@ namespace harmattan {
 
         void set_surface_size(const int width, const int height);
 
+        /**
+         * @brief Whether the display widget's page is shown. Guest screen
+         *        presents are skipped while it is hidden.
+         */
+        void set_surface_visible(const bool visible) {
+            surface_visible.store(visible);
+        }
+
         bool is_running() const {
             return threads_started_;
         }
@@ -137,6 +145,7 @@ namespace harmattan {
         std::atomic<bool> stage_two_inited{ false };
         std::atomic<int> surface_width{ 854 };
         std::atomic<int> surface_height{ 480 };
+        std::atomic<bool> surface_visible{ false };
 
         // Invoked from the OS thread once stage two has been attempted.
         std::function<void(bool)> boot_finished_callback;

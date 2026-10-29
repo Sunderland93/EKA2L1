@@ -157,6 +157,15 @@ if (EKA2L1_SANITIZER)
     message(STATUS "Sanitizer enabled: ${EKA2L1_SANITIZER}")
 endif()
 
+# The build machine's absolute paths end up in every log line through __FILE__,
+# and in the shipped .deb as embedded strings. Rewrite them to paths relative
+# to the source root on the Harmattan build, where logs are the main bug
+# report channel.
+if (EKA2L1_MEEGO)
+    add_compile_options("-ffile-prefix-map=${CMAKE_SOURCE_DIR}/=")
+    add_compile_options("-ffile-prefix-map=${CMAKE_BINARY_DIR}/=")
+endif()
+
 
 if (APPLE)
     # The bundled boost (pulled in by dynarmic) still uses std::unary_function,

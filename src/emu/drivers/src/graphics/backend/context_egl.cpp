@@ -102,9 +102,12 @@ namespace eka2l1::drivers::graphics {
         if (m_opengl_mode == mode::opengl_es) {
             if (egl_context = eglCreateContext(egl_display, egl_config, shared, egl_context_attribs_es.data());
                     egl_context == EGL_NO_CONTEXT) {
-                LOG_CRITICAL(DRIVER_GRAPHICS, "eglCreateContext() failed");
+                LOG_CRITICAL(DRIVER_GRAPHICS, "eglCreateContext() failed (error 0x{:X})", eglGetError());
                 return false;
             }
+
+            LOG_INFO(DRIVER_GRAPHICS, "EGL OpenGL ES context created");
+            return true;
         } else {
             std::array<EGLint, 5> egl_context_attrib_template{ EGL_CONTEXT_MAJOR_VERSION, 0,
                 EGL_CONTEXT_MINOR_VERSION, 0, EGL_NONE };
@@ -150,15 +153,19 @@ namespace eka2l1::drivers::graphics {
         // eglChooseConfig has no way to ask for a visual id, so enumerate.
         EGLint config_count = 0;
         if (eglGetConfigs(egl_display, nullptr, 0, &config_count) != EGL_TRUE || (config_count <= 0)) {
-            LOG_CRITICAL(DRIVER_GRAPHICS, "eglGetConfigs() returned no configurations");
+            LOG_CRITICAL(DRIVER_GRAPHICS, "eglGetConfigs() returned no configurations (error 0x{:X})",
+                eglGetError());
             return false;
         }
 
         std::vector<EGLConfig> configs(static_cast<std::size_t>(config_count));
         if (eglGetConfigs(egl_display, configs.data(), config_count, &config_count) != EGL_TRUE) {
-            LOG_CRITICAL(DRIVER_GRAPHICS, "eglGetConfigs() failed");
+            LOG_CRITICAL(DRIVER_GRAPHICS, "eglGetConfigs() failed (error 0x{:X})", eglGetError());
             return false;
         }
+
+        LOG_INFO(DRIVER_GRAPHICS, "Searching {} EGL configs for a GLES2 window one matching X11 visual 0x{:X}",
+            config_count, wsi.native_visual_id);
 
         EGLConfig fallback = nullptr;
 
@@ -168,14 +175,20 @@ namespace eka2l1::drivers::graphics {
             EGLint red_size = 0;
             EGLint green_size = 0;
             EGLint blue_size = 0;
+            EGLint visual_id = 0;
 
             if (eglGetConfigAttrib(egl_display, configs[i], EGL_SURFACE_TYPE, &surface_type) != EGL_TRUE ||
                 eglGetConfigAttrib(egl_display, configs[i], EGL_RENDERABLE_TYPE, &renderable_type) != EGL_TRUE ||
                 eglGetConfigAttrib(egl_display, configs[i], EGL_RED_SIZE, &red_size) != EGL_TRUE ||
                 eglGetConfigAttrib(egl_display, configs[i], EGL_GREEN_SIZE, &green_size) != EGL_TRUE ||
-                eglGetConfigAttrib(egl_display, configs[i], EGL_BLUE_SIZE, &blue_size) != EGL_TRUE) {
+                eglGetConfigAttrib(egl_display, configs[i], EGL_BLUE_SIZE, &blue_size) != EGL_TRUE ||
+                eglGetConfigAttrib(egl_display, configs[i], EGL_NATIVE_VISUAL_ID, &visual_id) != EGL_TRUE) {
                 continue;
             }
+
+            LOG_TRACE(DRIVER_GRAPHICS, "EGL config {}: rgba({},{},{},?) visual 0x{:X} surface 0x{:X} renderable 0x{:X}",
+                i, red_size, green_size, blue_size, static_cast<std::uint32_t>(visual_id),
+                static_cast<std::uint32_t>(surface_type), static_cast<std::uint32_t>(renderable_type));
 
             if (!(surface_type & EGL_WINDOW_BIT) || !(renderable_type & EKA2L1_EGL_RENDERABLE_TYPE)) {
                 continue;
@@ -192,10 +205,10 @@ namespace eka2l1::drivers::graphics {
                 continue;
             }
 
-            EGLint visual_id = 0;
-            if (eglGetConfigAttrib(egl_display, configs[i], EGL_NATIVE_VISUAL_ID, &visual_id) == EGL_TRUE &&
-                (static_cast<std::uint32_t>(visual_id) == wsi.native_visual_id)) {
+            if (static_cast<std::uint32_t>(visual_id) == wsi.native_visual_id) {
                 egl_config = configs[i];
+                LOG_INFO(DRIVER_GRAPHICS, "EGL config {} matches the X11 visual (rgba({},{},{},?))",
+                    i, red_size, green_size, blue_size);
                 return true;
             }
         }
@@ -214,16 +227,24 @@ namespace eka2l1::drivers::graphics {
 
     void gl_context_egl::init_gl() {
         if (egl_display = eglGetDisplay(wsi.display_connection ? reinterpret_cast<EGLNativeDisplayType>(wsi.display_connection) : EGL_DEFAULT_DISPLAY); egl_display == EGL_NO_DISPLAY) {
-            LOG_CRITICAL(DRIVER_GRAPHICS, "eglGetDisplay() failed");
-            return;
-        }
-        if (eglInitialize(egl_display, 0, 0) != EGL_TRUE) {
-            LOG_CRITICAL(DRIVER_GRAPHICS, "eglInitialize() failed");
+            LOG_CRITICAL(DRIVER_GRAPHICS, "eglGetDisplay() failed (error 0x{:X})", eglGetError());
             return;
         }
 
+        EGLint egl_major = 0;
+        EGLint egl_minor = 0;
+        if (eglInitialize(egl_display, &egl_major, &egl_minor) != EGL_TRUE) {
+            LOG_CRITICAL(DRIVER_GRAPHICS, "eglInitialize() failed (error 0x{:X})", eglGetError());
+            return;
+        }
+
+        LOG_INFO(DRIVER_GRAPHICS, "EGL {}.{} initialised on display {}, vendor: {}",
+            egl_major, egl_minor,
+            wsi.display_connection ? "from frontend" : "default",
+            eglQueryString(egl_display, EGL_VENDOR) ? eglQueryString(egl_display, EGL_VENDOR) : "<null>");
+
         if (eglBindAPI((m_opengl_mode == mode::opengl_es) ? EGL_OPENGL_ES_API : EGL_OPENGL_API) != EGL_TRUE) {
-            LOG_CRITICAL(DRIVER_GRAPHICS, "Can't bind target graphics API!");
+            LOG_CRITICAL(DRIVER_GRAPHICS, "Can't bind target graphics API! (error 0x{:X})", eglGetError());
             return;
         }
 
@@ -235,6 +256,9 @@ namespace eka2l1::drivers::graphics {
             // never presented and keeps the EGL config in sync with the X11
             // visual the window was created with.
             if (wsi.render_window) {
+                LOG_INFO(DRIVER_GRAPHICS, "Using the Harmattan window surface fast path: window {}, X11 visual 0x{:X}, size {}x{}",
+                    wsi.render_window, wsi.native_visual_id, wsi.surface_width, wsi.surface_height);
+
                 if (!choose_window_config()) {
                     return;
                 }
@@ -251,10 +275,12 @@ namespace eka2l1::drivers::graphics {
                 }
 
                 if (eglMakeCurrent(egl_display, egl_surface, egl_surface, egl_context) != EGL_TRUE) {
-                    LOG_CRITICAL(DRIVER_GRAPHICS, "eglMakeCurrent() failed");
+                    LOG_CRITICAL(DRIVER_GRAPHICS, "eglMakeCurrent() failed (error 0x{:X})", eglGetError());
                     return;
                 }
 
+                LOG_INFO(DRIVER_GRAPHICS, "EGL window surface {} and context {} are current",
+                    static_cast<void *>(egl_surface), static_cast<void *>(egl_context));
                 return;
             }
 #endif
@@ -394,6 +420,8 @@ namespace eka2l1::drivers::graphics {
 
         m_backbuffer_width = static_cast<int>(surface_width);
         m_backbuffer_height = static_cast<int>(surface_height);
+
+        LOG_INFO(DRIVER_GRAPHICS, "EGL window surface created: {}x{}", m_backbuffer_width, m_backbuffer_height);
     }
 
     void gl_context_egl::destroy_surface() {

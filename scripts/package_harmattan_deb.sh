@@ -99,7 +99,10 @@ Description: Symbian OS emulator for MeeGo Harmattan
 EOF
 
 # ------------------------------------------------------------------ build ---
-dpkg-deb --root-owner-group -b "${STAGE}" "${DEB}"
+# Harmattan's dpkg (1.15.x) predates xz deb members and rejects anything but
+# gzip ("contains ununderstood data member control.tar.xz"), so gzip is
+# forced for both the control and data members.
+dpkg-deb --root-owner-group -Zgzip -z6 -b "${STAGE}" "${DEB}"
 
 echo
 echo "built: ${DEB}"

@@ -66,6 +66,13 @@ namespace harmattan {
             return;
         }
 
+        // Presents to a hidden window are skipped: the page is not on screen
+        // and the SGX driver's behaviour for swapping an unmapped window is
+        // not something to rely on.
+        if (!emu->surface_visible.load()) {
+            return;
+        }
+
         emu->graphics_driver->wait_for(&emu->present_status);
 
         drivers::graphics_command_builder builder;
@@ -239,7 +246,10 @@ namespace harmattan {
         }
 
         if (winserv) {
+            LOG_INFO(FRONTEND_UI, "Window server instance found after the system reset");
             add_screen_draw_callback();
+        } else {
+            LOG_WARN(FRONTEND_UI, "Window server was not found after the system reset");
         }
     }
 
@@ -282,12 +292,19 @@ namespace harmattan {
             player_be = drivers::player_type_minibae;
         }
 
+        LOG_INFO(FRONTEND_UI, "Creating the cubeb audio driver (MIDI backend: {})",
+            player_be == drivers::player_type_minibae ? "minibae" : "tsf");
+
         audio_driver = drivers::make_audio_driver(drivers::audio_driver_backend::cubeb,
             conf.audio_master_volume, player_be);
 
         if (audio_driver) {
             audio_driver->set_bank_path(drivers::MIDI_BANK_TYPE_HSB, conf.hsb_bank_path);
             audio_driver->set_bank_path(drivers::MIDI_BANK_TYPE_SF2, conf.sf2_bank_path);
+            LOG_INFO(FRONTEND_UI, "Audio driver created (HSB bank: {}, SF2 bank: {})",
+                conf.hsb_bank_path, conf.sf2_bank_path);
+        } else {
+            LOG_ERROR(FRONTEND_UI, "Failed to create the audio driver, sound is disabled");
         }
 
         symsys->set_audio_driver(audio_driver.get());
@@ -321,6 +338,7 @@ namespace harmattan {
             }
 
             std::u16string org_file_path = std::get<0>(dlls_need_to_copy[i]);
+            LOG_INFO(FRONTEND_UI, "Patching guest DLL: {}", common::ucs2_to_utf8(org_file_path));
             auto where_to_copy = io->get_raw_path(org_file_path);
 
             if (!where_to_copy.has_value()) {
@@ -342,6 +360,7 @@ namespace harmattan {
         pkgmngr->migrate_legacy_registries();
 
         stage_two_inited = true;
+        LOG_INFO(FRONTEND_UI, "Stage two completed, the OS is ready to run");
         return true;
     }
 
@@ -349,6 +368,8 @@ namespace harmattan {
         if ((width <= 0) || (height <= 0)) {
             return;
         }
+
+        LOG_INFO(FRONTEND_UI, "Emulation surface size set to {}x{}", width, height);
 
         surface_width = width;
         surface_height = height;
@@ -373,6 +394,8 @@ namespace harmattan {
             scale = 1.0f;
         }
 
+        LOG_TRACE(FRONTEND_UI, "Touch event: x={} y={} action={}", x, y, action);
+
         drivers::input_event evt;
         evt.type_ = drivers::input_event_type::touch;
         evt.mouse_.raw_screen_pos_ = false;
@@ -395,6 +418,8 @@ namespace harmattan {
         if (!winserv) {
             return;
         }
+
+        LOG_TRACE(FRONTEND_UI, "Key event: scan code 0x{:X} ({})", scan_code, pressed ? "pressed" : "released");
 
         drivers::input_event evt;
         evt.type_ = drivers::input_event_type::key_raw;
@@ -420,7 +445,10 @@ namespace harmattan {
             get_app_list_server_name_by_epocver(kern->get_epoc_version())));
 
         if (applist) {
+            LOG_INFO(FRONTEND_UI, "Scanning installed application registries");
             applist->rescan_registries(symsys->get_io_system());
+        } else {
+            LOG_WARN(FRONTEND_UI, "Application list server was not found");
         }
     }
 
@@ -437,13 +465,18 @@ namespace harmattan {
             return 1;
         }
 
+        LOG_INFO(FRONTEND_UI, "Graphics driver created, initial surface {}x{}",
+            emu.wsi_.surface_width, emu.wsi_.surface_height);
+
         emu.graphics_driver->update_surface_size(eka2l1::vec2(emu.wsi_.surface_width, emu.wsi_.surface_height));
         emu.graphics_driver->set_display_hook([]() {});
 
         emu.symsys->set_graphics_driver(emu.graphics_driver.get());
         emu.graphics_ready_event_.set();
 
+        LOG_INFO(FRONTEND_UI, "Graphics thread entering the driver loop");
         emu.graphics_driver->run();
+        LOG_INFO(FRONTEND_UI, "Graphics thread left the driver loop");
 
         // The system is torn down by the OS thread; the EGL context must
         // outlive it because the reset path may still submit commands.
@@ -461,7 +494,9 @@ namespace harmattan {
 
         while (!emu.should_emu_quit) {
             if (!inited) {
+                LOG_INFO(FRONTEND_UI, "Starting stage two (OS boot)");
                 inited = emu.stage_two();
+                LOG_INFO(FRONTEND_UI, "Stage two finished with result: {}", inited ? "success" : "failure");
 
                 if (emu.boot_finished_callback) {
                     emu.boot_finished_callback(inited);
@@ -473,8 +508,11 @@ namespace harmattan {
                 }
             }
 
+            // The loop self-locks (system_impl::loop holds its own mutex);
+            // holding the session mutex here would freeze the whole UI
+            // whenever the OS thread stalls, which is how the desktop
+            // frontend does it too.
             try {
-                const std::lock_guard<std::recursive_mutex> guard(emu.session_mutex);
                 emu.symsys->loop();
             } catch (const std::exception &exc) {
                 LOG_ERROR(FRONTEND_UI, "Emulator loop exited with an exception: {}", exc.what());
@@ -507,6 +545,9 @@ namespace harmattan {
 
         should_emu_quit = false;
         stage_two_inited = false;
+
+        LOG_INFO(FRONTEND_UI, "Starting emulator threads: render window {}, display connection {}, visual 0x{:X}, size {}x{}",
+            render_window, display_connection, visual_id, width, height);
 
         wsi_ = drivers::window_system_info(drivers::window_system_type::harmattan, display_connection,
             render_window, render_window);
@@ -541,6 +582,7 @@ namespace harmattan {
             return;
         }
 
+        LOG_INFO(FRONTEND_UI, "Stopping the emulator threads");
         should_emu_quit = true;
 
         if (symsys) {
@@ -570,6 +612,7 @@ namespace harmattan {
     }
 
     void emulator::shutdown() {
+        LOG_INFO(FRONTEND_UI, "Shutting the emulator down");
         stop_threads();
 
         const std::lock_guard<std::recursive_mutex> guard(session_mutex);

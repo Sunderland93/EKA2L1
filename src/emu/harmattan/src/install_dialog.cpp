@@ -107,8 +107,12 @@ namespace harmattan {
             QObject::tr("Select device file"), QString(), filter);
 
         if (selected.isEmpty()) {
+            LOG_INFO(FRONTEND_UI, "Device installation cancelled at the file prompt");
             return false;
         }
+
+        LOG_INFO(FRONTEND_UI, "Installing device from {} ({})",
+            selected.toStdString(), use_archive ? "archive" : "VPL");
 
         const int isolate_answer = QMessageBox::question(parent, QObject::tr("Install device"),
             QObject::tr("Give this device its own C, D and E drives?\n\n"
@@ -116,6 +120,7 @@ namespace harmattan {
             QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
 
         const bool isolate_drives = (isolate_answer == QMessageBox::Yes);
+        LOG_INFO(FRONTEND_UI, "Device drives are {} between devices", isolate_drives ? "isolated" : "shared");
 
         device_manager *dvc = emu.symsys->get_device_manager();
 
@@ -176,11 +181,14 @@ namespace harmattan {
         }
 
         if (error != device_installation_none) {
+            LOG_ERROR(FRONTEND_UI, "Device installation failed with error code {}",
+                static_cast<int>(error));
             QMessageBox::critical(parent, QObject::tr("Installation failed"),
                 installation_error_to_string(error));
             return false;
         }
 
+        LOG_INFO(FRONTEND_UI, "Device installed successfully");
         return true;
     }
 
@@ -218,6 +226,8 @@ namespace harmattan {
         progress.setMinimumDuration(0);
         progress.setValue(0);
 
+        LOG_INFO(FRONTEND_UI, "Installing package {}", file.toStdString());
+
         const package::installation_result result = pkgmngr->install_package(
             common::utf8_to_ucs2(file.toStdString()), install_drive,
             [&progress](const std::size_t taken, const std::size_t total) {
@@ -231,6 +241,9 @@ namespace harmattan {
             });
 
         progress.setValue(100);
+
+        LOG_INFO(FRONTEND_UI, "Package installation finished with result code {}",
+            static_cast<int>(result));
 
         switch (result) {
         case package::installation_result_success:

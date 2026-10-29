@@ -183,8 +183,11 @@ namespace ui {
     bool open_input_view(const std::u16string &initial_text, const int max_len,
         input_dialog_complete_callback complete_callback) {
         if (!harmattan::host || !complete_callback) {
+            LOG_TRACE(FRONTEND_UI, "Guest requested an input view but the bridge is not ready");
             return true;
         }
+
+        LOG_INFO(FRONTEND_UI, "Guest requested an input view (max length {})", max_len);
 
         {
             std::lock_guard<std::mutex> guard(harmattan::bridge_mutex);
@@ -205,6 +208,8 @@ namespace ui {
             dialog = harmattan::active_input_dialog.data();
         }
 
+        LOG_INFO(FRONTEND_UI, "Guest requested closing the input view");
+
         if (dialog) {
             QMetaObject::invokeMethod(dialog, "reject", Qt::QueuedConnection);
         }
@@ -213,8 +218,11 @@ namespace ui {
     void show_yes_no_dialog(const std::u16string &text, const std::u16string &button1_text,
         const std::u16string &button2_text, yes_no_dialog_complete_callback complete_callback) {
         if (!harmattan::host || !complete_callback) {
+            LOG_TRACE(FRONTEND_UI, "Guest requested a question dialog but the bridge is not ready");
             return;
         }
+
+        LOG_INFO(FRONTEND_UI, "Guest requested a question dialog");
 
         {
             std::lock_guard<std::mutex> guard(harmattan::bridge_mutex);

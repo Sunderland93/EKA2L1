@@ -20,6 +20,8 @@
 #include <harmattan/main_window.h>
 
 #include <harmattan/display_widget.h>
+#include <common/log.h>
+
 #include <harmattan/emulator.h>
 #include <harmattan/install_dialog.h>
 
@@ -207,10 +209,13 @@ namespace harmattan {
             return;
         }
 
+        LOG_INFO(FRONTEND_UI, "UI: starting the emulator");
+
         app_list_->clear();
         apps_.clear();
 
         if (!emu_.boot_ui_side()) {
+            LOG_INFO(FRONTEND_UI, "UI: no device installed yet");
             show_status(tr("No device installed"));
             QMessageBox::information(this, tr("No device installed"),
                 tr("Install a device firmware (VPL or an archive) to start using EKA2L1."));
@@ -219,8 +224,16 @@ namespace harmattan {
 
         show_status(tr("Starting..."));
 
+        // Show the emulation page during boot: the display widget is laid out
+        // at full size, so the EGL surface is created on a properly sized and
+        // mapped window, and the boot screen is visible. The launcher page
+        // takes over once the OS is up.
+        stack_->setCurrentWidget(emulator_page_);
+        QCoreApplication::processEvents();
+
         // Force the native window to exist before the EGL surface is created.
         WId native_id = displayer_->winId();
+        LOG_INFO(FRONTEND_UI, "UI: display widget {}x{}, native window id {}", displayer_->width(), displayer_->height(), static_cast<std::uintptr_t>(native_id));
 
         void *display_connection = nullptr;
         std::uint32_t visual_id = 0;
@@ -232,7 +245,13 @@ namespace harmattan {
         if (x11_info.visual()) {
             visual_id = static_cast<std::uint32_t>(
                 XVisualIDFromVisual(reinterpret_cast<Visual *>(x11_info.visual())));
+            LOG_INFO(FRONTEND_UI, "UI: got X11 display connection {} and visual id 0x{:X}",
+                static_cast<void *>(x11_info.display()), visual_id);
+        } else {
+            LOG_WARN(FRONTEND_UI, "UI: X11 visual unavailable, EGL config matching will use the fallback");
         }
+#else
+        LOG_WARN(FRONTEND_UI, "UI: built without X11 query support, EGL config matching will use the fallback");
 #endif
 
         if (!emu_.start_threads(reinterpret_cast<void *>(static_cast<std::uintptr_t>(native_id)),
@@ -252,6 +271,8 @@ namespace harmattan {
     void main_window::refresh_app_list() {
         app_list_->clear();
         apps_.clear();
+
+        LOG_INFO(FRONTEND_UI, "UI: refreshing the application list");
 
         emu_.rescan_apps();
 
@@ -315,6 +336,8 @@ namespace harmattan {
             return;
         }
 
+        LOG_INFO(FRONTEND_UI, "UI: launch requested for list index {}", item->data(Qt::UserRole).toInt());
+
         const int index = item->data(Qt::UserRole).toInt();
         bool launched = false;
 
@@ -335,12 +358,14 @@ namespace harmattan {
         }
 
         if (!launched) {
+            LOG_ERROR(FRONTEND_UI, "UI: guest application failed to launch");
             QMessageBox::warning(this, tr("Launch failed"),
                 tr("The selected application could not be started."));
             return;
         }
 
         stack_->setCurrentWidget(emulator_page_);
+        LOG_INFO(FRONTEND_UI, "UI: guest application launched, switching to the emulator page");
         displayer_->setFocus();
     }
 
@@ -353,10 +378,12 @@ namespace harmattan {
     }
 
     void main_window::on_guest_app_exited() {
+        LOG_INFO(FRONTEND_UI, "UI: guest application exited, back to the launcher");
         stack_->setCurrentWidget(launcher_page_);
     }
 
     void main_window::on_install_device_clicked() {
+        LOG_INFO(FRONTEND_UI, "UI: device installation requested");
         bool was_running = emu_.is_running();
 
         if (was_running) {
@@ -384,6 +411,7 @@ namespace harmattan {
     }
 
     void main_window::on_install_app_clicked() {
+        LOG_INFO(FRONTEND_UI, "UI: package installation requested");
         if (!emu_.is_running() || !emu_.symsys) {
             QMessageBox::information(this, tr("Not running"),
                 tr("Boot a device before installing applications."));
@@ -396,6 +424,7 @@ namespace harmattan {
     }
 
     void main_window::closeEvent(QCloseEvent *event) {
+        LOG_INFO(FRONTEND_UI, "UI: window closed, exiting");
         emu_.boot_finished_callback = nullptr;
         emu_.shutdown();
         event->accept();

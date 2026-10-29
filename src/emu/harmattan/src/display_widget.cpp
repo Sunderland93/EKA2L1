@@ -19,14 +19,18 @@
 
 #include <harmattan/display_widget.h>
 
+#include <common/log.h>
+
 #include <harmattan/emulator.h>
 
 #include <services/window/keys.h>
 
+#include <QHideEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QResizeEvent>
+#include <QShowEvent>
 
 namespace eka2l1 {
 namespace harmattan {
@@ -49,7 +53,20 @@ namespace harmattan {
 
     void display_widget::resizeEvent(QResizeEvent *event) {
         QWidget::resizeEvent(event);
+        LOG_INFO(FRONTEND_UI, "UI: display widget resized to {}x{}", width(), height());
         emu_.set_surface_size(width(), height());
+    }
+
+    void display_widget::showEvent(QShowEvent *event) {
+        QWidget::showEvent(event);
+        LOG_INFO(FRONTEND_UI, "UI: display widget shown, {}x{}", width(), height());
+        emu_.set_surface_visible(true);
+    }
+
+    void display_widget::hideEvent(QHideEvent *event) {
+        QWidget::hideEvent(event);
+        LOG_INFO(FRONTEND_UI, "UI: display widget hidden");
+        emu_.set_surface_visible(false);
     }
 
     void display_widget::mousePressEvent(QMouseEvent *event) {
@@ -178,11 +195,14 @@ namespace harmattan {
 
         const int scan_code = qt_key_to_epoc_scan_code(event->key());
         if (scan_code != 0) {
+            LOG_INFO(FRONTEND_UI, "UI: key pressed: Qt key 0x{:X} -> epoc scan code 0x{:X}",
+                event->key(), scan_code);
             emu_.send_key(scan_code, true);
             event->accept();
             return;
         }
 
+        LOG_WARN(FRONTEND_UI, "UI: unhandled key pressed: Qt key 0x{:X}", event->key());
         QWidget::keyPressEvent(event);
     }
 

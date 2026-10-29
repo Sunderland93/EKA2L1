@@ -146,6 +146,18 @@ namespace eka2l1::drivers {
         bool gles2_;
         bool support_line_width_;
 
+        // Core GLES 2.0 has no vertex array objects. The SGX530 of the N9 for
+        // example ships without GL_OES_vertex_array_object, and calling the
+        // unresolved entry points would crash. All draw paths re-specify the
+        // attribute state anyway, so skipping the VAO calls is enough.
+        bool use_vertex_array_objects() const {
+#if EKA2L1_PLATFORM(ANDROID) || EKA2L1_PLATFORM(MEEGO)
+            return !gles2_ || ogl_es2_caps().has_vao;
+#else
+            return true;
+#endif
+        }
+
         std::uint32_t max_texture_size_ = 2048;
 
         float point_size;

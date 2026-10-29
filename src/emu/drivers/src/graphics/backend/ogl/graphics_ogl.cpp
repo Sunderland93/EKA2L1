@@ -322,7 +322,8 @@ namespace eka2l1::drivers {
             resolve_es2_extensions(extensions);
 
             if (!ogl_es2_caps().has_vao) {
-                LOG_CRITICAL(DRIVER_GRAPHICS, "GL_OES_vertex_array_object is required by the OpenGL ES 2.0 backend");
+                LOG_WARN(DRIVER_GRAPHICS, "GL_OES_vertex_array_object is not available, "
+                    "the backend will set vertex attribute state per draw");
             }
 
             LOG_INFO(DRIVER_GRAPHICS, "OpenGL ES 2.0 extensions: VAO={} instancing={} base_vertex={} blit={} ETC1={}",
@@ -369,7 +370,10 @@ namespace eka2l1::drivers {
         GLuint vbo_to_del[3] = { sprite_vbo, brush_vbo, pen_vbo };
         GLuint ibo_to_del[2] = { sprite_ibo, pen_ibo };
 
-        glDeleteVertexArrays(3, vao_to_del);
+        if (use_vertex_array_objects()) {
+            glDeleteVertexArrays(3, vao_to_del);
+        }
+
         glDeleteBuffers(3, vbo_to_del);
         glDeleteBuffers(2, ibo_to_del);
     }
@@ -458,15 +462,25 @@ namespace eka2l1::drivers {
         };
 
         // Make sprite VAO and VBO
-        glGenVertexArrays(1, &sprite_vao);
+        if (use_vertex_array_objects()) {
+            glGenVertexArrays(1, &sprite_vao);
+        }
+
         glGenBuffers(1, &sprite_vbo);
-        glBindVertexArray(sprite_vao);
+
+        if (use_vertex_array_objects()) {
+            glBindVertexArray(sprite_vao);
+        }
+
         glBindBuffer(GL_ARRAY_BUFFER, sprite_vbo);
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (GLvoid *)0);
         glEnableVertexAttribArray(1);
         glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (GLvoid *)(2 * sizeof(GLfloat)));
-        glBindVertexArray(0);
+
+        if (use_vertex_array_objects()) {
+            glBindVertexArray(0);
+        }
 
         // Make fill VAO and VBO
         static GLfloat brush_verts_default[] = {
@@ -480,24 +494,37 @@ namespace eka2l1::drivers {
             1.0f
         };
 
-        glGenVertexArrays(1, &brush_vao);
+        if (use_vertex_array_objects()) {
+            glGenVertexArrays(1, &brush_vao);
+            glBindVertexArray(brush_vao);
+        }
+
         glGenBuffers(1, &brush_vbo);
-        glBindVertexArray(brush_vao);
         glBindBuffer(GL_ARRAY_BUFFER, brush_vbo);
         glBufferData(GL_ARRAY_BUFFER, sizeof(brush_verts_default), nullptr, GL_STATIC_DRAW);
         glBufferData(GL_ARRAY_BUFFER, sizeof(brush_verts_default), brush_verts_default, GL_STATIC_DRAW);
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (GLvoid *)0);
-        glBindVertexArray(0);
+
+        if (use_vertex_array_objects()) {
+            glBindVertexArray(0);
+        }
 
         // Make pen VAO and VBO
-        glGenVertexArrays(1, &pen_vao);
+        if (use_vertex_array_objects()) {
+            glGenVertexArrays(1, &pen_vao);
+            glBindVertexArray(pen_vao);
+        }
+
         glGenBuffers(1, &pen_vbo);
-        glBindVertexArray(pen_vao);
+
         glBindBuffer(GL_ARRAY_BUFFER, pen_vbo);
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (GLvoid *)0);
-        glBindVertexArray(0);
+
+        if (use_vertex_array_objects()) {
+            glBindVertexArray(0);
+        }
 
         glGenBuffers(1, &sprite_ibo);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sprite_ibo);
@@ -653,7 +680,9 @@ namespace eka2l1::drivers {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sprite_ibo);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
 
-        glBindVertexArray(0);
+        if (use_vertex_array_objects()) {
+            glBindVertexArray(0);
+        }
     }
 
     void ogl_graphics_driver::draw_rectangle(command &cmd) {
@@ -830,7 +859,10 @@ namespace eka2l1::drivers {
             vert_pointer = verts_default_flipped;
         }
 
-        glBindVertexArray(sprite_vao);
+        if (use_vertex_array_objects()) {
+            glBindVertexArray(sprite_vao);
+        }
+
         glBindBuffer(GL_ARRAY_BUFFER, sprite_vbo);
         glBufferData(GL_ARRAY_BUFFER, sizeof(verts), nullptr, GL_STATIC_DRAW);
         glBufferData(GL_ARRAY_BUFFER, sizeof(verts), vert_pointer, GL_STATIC_DRAW);
@@ -929,7 +961,9 @@ namespace eka2l1::drivers {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sprite_ibo);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
 
-        glBindVertexArray(0);
+        if (use_vertex_array_objects()) {
+            glBindVertexArray(0);
+        }
     }
 
     void ogl_graphics_driver::clip_rect(command &cmd) {
@@ -1532,7 +1566,10 @@ namespace eka2l1::drivers {
 
         prepare_draw_lines_shared();
 
-        glBindVertexArray(pen_vao);
+        if (use_vertex_array_objects()) {
+            glBindVertexArray(pen_vao);
+        }
+
         glBindBuffer(GL_ARRAY_BUFFER, pen_vbo);
         glEnableVertexAttribArray(0);
 
@@ -1578,7 +1615,10 @@ namespace eka2l1::drivers {
         std::size_t point_count = static_cast<std::size_t>(cmd.data_[0]);
         eka2l1::point *point_list = reinterpret_cast<eka2l1::point*>(cmd.data_[1]);
 
-        glBindVertexArray(pen_vao);
+        if (use_vertex_array_objects()) {
+            glBindVertexArray(pen_vao);
+        }
+
         glBindBuffer(GL_ARRAY_BUFFER, pen_vbo);
         glEnableVertexAttribArray(0);
 
@@ -2099,7 +2139,9 @@ namespace eka2l1::drivers {
         glGetIntegerv(GL_ACTIVE_TEXTURE, &backup.last_active_texture);
         glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &backup.last_array_buffer);
         glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &backup.last_element_array_buffer);
-        glGetIntegerv(gles2_ ? EKA2L1_GL_VERTEX_ARRAY_BINDING_OES : GL_VERTEX_ARRAY_BINDING, &backup.last_vertex_array);
+        if (use_vertex_array_objects()) {
+            glGetIntegerv(gles2_ ? EKA2L1_GL_VERTEX_ARRAY_BINDING_OES : GL_VERTEX_ARRAY_BINDING, &backup.last_vertex_array);
+        }
         glGetIntegerv(GL_BLEND_SRC_RGB, &backup.last_blend_src_rgb);
         glGetIntegerv(GL_BLEND_SRC_ALPHA, &backup.last_blend_src_alpha);
         glGetIntegerv(GL_BLEND_DST_RGB, &backup.last_blend_dst_rgb);
@@ -2118,7 +2160,11 @@ namespace eka2l1::drivers {
         glUseProgram(backup.last_program);
         glActiveTexture(static_cast<GLenum>(backup.last_active_texture));
         glBindTexture(GL_TEXTURE_2D, backup.last_texture);
-        glBindVertexArray(backup.last_vertex_array);
+
+        if (use_vertex_array_objects()) {
+            glBindVertexArray(backup.last_vertex_array);
+        }
+
         glBindBuffer(GL_ARRAY_BUFFER, backup.last_array_buffer);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, backup.last_element_array_buffer);
 

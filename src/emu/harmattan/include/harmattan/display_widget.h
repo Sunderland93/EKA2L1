@@ -48,6 +48,9 @@ namespace harmattan {
         void keyPressEvent(QKeyEvent *event) override;
         void keyReleaseEvent(QKeyEvent *event) override;
 
+        void showEvent(QShowEvent *event) override;
+        void hideEvent(QHideEvent *event) override;
+
     private:
         emulator &emu_;
         int pressed_button_;
