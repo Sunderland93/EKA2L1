@@ -25,7 +25,11 @@ namespace eka2l1::arm::r12l1 {
     template <typename V>
     std::vector<arm_matcher<V>> get_arm_decode_table() {
         std::vector<arm_matcher<V>> table = {
-#define INST(fn, name, bitstring) decoder::detail<arm_matcher<V>>::get_matcher(&V::fn, name, bitstring),
+#define INST(fn, name, bitstring) [] { \
+    static_assert(decoder::valid_bitstring<decltype(&V::fn), typename arm_matcher<V>::opcode_type>(bitstring), \
+        "Decoder pattern does not match handler arguments: " #fn); \
+    return decoder::detail<arm_matcher<V>>::get_matcher(&V::fn, name, bitstring); \
+}(),
 #include <cpu/12l1r/encoding/arm.inc>
 #undef INST
         };
