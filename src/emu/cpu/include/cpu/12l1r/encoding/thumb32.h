@@ -23,7 +23,11 @@ namespace eka2l1::arm::r12l1 {
     template <typename V>
     std::optional<std::reference_wrapper<const thumb32_matcher<V>>> decode_thumb32(const std::uint32_t instruction) {
         static const std::vector<thumb32_matcher<V>> table = {
-#define INST(fn, name, bitstring) decoder::detail<thumb32_matcher<V>>::get_matcher(&V::fn, name, bitstring)
+#define INST(fn, name, bitstring) [] { \
+    static_assert(decoder::valid_bitstring<decltype(&V::fn), typename thumb32_matcher<V>::opcode_type>(bitstring), \
+        "Decoder pattern does not match handler arguments: " #fn); \
+    return decoder::detail<thumb32_matcher<V>>::get_matcher(&V::fn, name, bitstring); \
+}()
 #include <cpu/12l1r/encoding/thumb32.inc>
 #undef INST
         };

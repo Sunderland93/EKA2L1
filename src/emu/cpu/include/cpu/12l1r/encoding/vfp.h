@@ -30,7 +30,11 @@ namespace eka2l1::arm::r12l1 {
         } tables = [] {
             table_type list = {
 
-#define INST(fn, name, bitstring) decoder::detail<vfp_matcher<V>>::get_matcher(&V::fn, name, bitstring),
+#define INST(fn, name, bitstring) [] { \
+    static_assert(decoder::valid_bitstring<decltype(&V::fn), typename vfp_matcher<V>::opcode_type>(bitstring), \
+        "Decoder pattern does not match handler arguments: " #fn); \
+    return decoder::detail<vfp_matcher<V>>::get_matcher(&V::fn, name, bitstring); \
+}(),
 #include <cpu/12l1r/encoding/vfp.inc>
 #undef INST
 

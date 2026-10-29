@@ -71,7 +71,8 @@ INST(arm_TST_reg,       "TST (reg)",           "cccc00010001nnnn0000vvvvvrr0mmmm
 INST(arm_TST_rsr,       "TST (rsr)",           "cccc00010001nnnn0000ssss0rr1mmmm") // all
 
 // Exception Generating instructions
-INST(arm_BKPT,          "BKPT",                "cccc00010010vvvvvvvvvvvv0111vvvv") // v5
+// The breakpoint handler takes no arguments; condition and immediate are ignored.
+INST(arm_BKPT,          "BKPT",                "----00010010------------0111----") // v5
 INST(arm_SVC,           "SVC",                 "cccc1111vvvvvvvvvvvvvvvvvvvvvvvv") // all
 INST(arm_UDF,           "UDF",                 "111001111111------------1111----") // all
 

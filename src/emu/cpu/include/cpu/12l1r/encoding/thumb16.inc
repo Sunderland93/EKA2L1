@@ -78,7 +78,8 @@ INST(thumb16_POP,            "POP",                      "1011110Pxxxxxxxx"), //
 //INST(thumb16_REV,            "REV",                      "1011101000mmmddd"), // v6
 //INST(thumb16_REV16,          "REV16",                    "1011101001mmmddd"), // v6
 //INST(thumb16_REVSH,          "REVSH",                    "1011101011mmmddd"), // v6
-INST(thumb16_BKPT,           "BKPT",                     "10111110xxxxxxxx"), // v5
+// The breakpoint handler takes no arguments; the immediate is ignored.
+INST(thumb16_BKPT,           "BKPT",                     "10111110--------"), // v5
 
 // Store/Load multiple registers
 INST(thumb16_STMIA,          "STMIA",                    "11000nnnxxxxxxxx"),

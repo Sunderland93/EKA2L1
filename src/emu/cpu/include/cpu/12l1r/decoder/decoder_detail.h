@@ -6,14 +6,44 @@
 
 #pragma once
 
+#include <cstddef>
+
 #include <common/funcinfo.h>
 
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <string_view>
 #include <tuple>
+#include <type_traits>
+#include <utility>
 
 namespace eka2l1::arm::r12l1::decoder {
+    // Each contiguous run of a field character supplies one visitor argument.
+    // Check table literals at compile time: otherwise an extra field writes past
+    // get_arg_info's arrays when assertions are disabled (including N == 0).
+    template <typename FnT, typename OpcodeT>
+    constexpr bool valid_bitstring(const std::string_view bitstring) {
+        if (bitstring.size() != sizeof(OpcodeT) * 8) {
+            return false;
+        }
+
+        std::size_t fields = 0;
+        char previous = 0;
+        for (const char c : bitstring) {
+            if (c == '\0') {
+                return false;
+            }
+            if (c == '0' || c == '1' || c == '-') {
+                previous = 0;
+            } else if (c != previous) {
+                ++fields;
+                previous = c;
+            }
+        }
+        return fields == common::function_info<FnT>::args_count;
+    }
+
     /**
      * Helper functions for the decoders.
      *

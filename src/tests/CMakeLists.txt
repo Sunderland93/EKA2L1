@@ -3,6 +3,15 @@ include(FileUtils)
 add_subdirectory(epoc)
 add_subdirectory(common)
 
+# The decoder pattern regression is independent of the ARM JIT and can run
+# on desktop hosts as well as on the device.
+add_executable(12l1r_decoder_patterns
+    ${PROJECT_SOURCE_DIR}/src/emu/cpu/src/12l1r/tests/decoder_patterns.cpp)
+target_include_directories(12l1r_decoder_patterns PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/emu/cpu/include
+    ${PROJECT_SOURCE_DIR}/src/emu/common/include)
+add_test(NAME 12l1r_decoder_patterns COMMAND 12l1r_decoder_patterns)
+
 add_executable(ekatests 
 	tests.cpp
     platform.cpp
